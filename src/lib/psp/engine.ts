@@ -127,6 +127,12 @@ export function inferPspFamily(name: string, category?: string | null): PspFamil
   return "outro";
 }
 
+export function isPspOnDemandFamily(
+  family: PspFamily
+): family is "camiseta" | "regata" {
+  return family === "camiseta" || family === "regata";
+}
+
 const COLOR_PATTERNS: Array<[RegExp, string]> = [
   [/\boff white\b|\boff\b/, "off"],
   [/\bazul marinho\b|\bmarinho\b|\bnavy\b/, "marinho"],
@@ -137,7 +143,7 @@ const COLOR_PATTERNS: Array<[RegExp, string]> = [
   [/\bcinza chumbo\b|\bchumbo\b/, "chumbo"],
   [/\bcinza mescla\b|\bmescla\b/, "mescla"],
   [/\bbordo\b|\bbordeaux\b/, "bordo"],
-  [/\bpret[oa]\b|\bblack\b/, "preto"],
+  [/\bpret[oa]\b|\bblack\b|\bbk\b/, "preto"],
   [/\bbranc[oa]\b|\bwhite\b/, "branco"],
   [/\bcinz[ao]\b|\bgrey\b|\bgray\b/, "cinza"],
   [/\bbege\b|\bbeige\b/, "bege"],
@@ -644,10 +650,15 @@ export function buildPspPlan(input: PspEngineInput): PspPlan {
     if (productSetting?.active === false) continue;
     const catalog = catalogBySku.get(row.sku);
     const name = catalog?.name || hub.nameByParent.get(row.sku) || row.name || row.sku;
-    const family = (productSetting?.family as PspFamily | null) || inferPspFamily(name, catalog?.category);
+    const inferredFamily = inferPspFamily(name, catalog?.category);
+    const family = (productSetting?.family as PspFamily | null) || inferredFamily;
     const color = productSetting?.color?.trim().toLowerCase() || inferPspColor(name);
-    const madeToOrder =
+    const requestedMadeToOrder =
       productSetting?.made_to_order_override ?? hub.madeToOrder.has(row.sku);
+    const madeToOrder =
+      requestedMadeToOrder &&
+      isPspOnDemandFamily(inferredFamily) &&
+      isPspOnDemandFamily(family);
     const unitsPerRoll = Math.max(
       1,
       Math.round(
@@ -947,7 +958,9 @@ export function buildPspPlan(input: PspEngineInput): PspPlan {
     // Quando ha configuracao, o SKU da base e a identidade real do grupo.
     const key = action.base_sku
       ? `sku:${baseSku(action.base_sku)}`
-      : `unmapped:${action.family}:${action.color}`;
+      : action.color === "sem cor"
+        ? `unmapped:${action.family}:sem-cor:${action.sku}`
+        : `unmapped:${action.family}:${action.color}`;
     const list = baseGroups.get(key) ?? [];
     list.push(action);
     baseGroups.set(key, list);
@@ -1120,6 +1133,18 @@ export function buildPspPlan(input: PspEngineInput): PspPlan {
       ? "hub_fallback"
       : "none";
   const mtoProducts = products.filter((product) => product.madeToOrder);
+  const registeredMtoSkus = new Set(
+    input.productSettings
+      .filter(
+        (row) =>
+          row.active !== false &&
+          row.made_to_order_override === true &&
+          (row.family === "camiseta" || row.family === "regata")
+      )
+      .map((row) => baseSku(row.sku))
+      .filter(Boolean)
+  );
+  const unclassifiedMtoProducts = mtoProducts.filter((product) => product.color === "sem cor");
   const mtoUnits = preproduction.reduce((sum, action) => sum + action.recommended_units, 0);
   const mappedMtoUnits = preproduction
     .filter((action) => {
@@ -1139,6 +1164,11 @@ export function buildPspPlan(input: PspEngineInput): PspPlan {
   if (stockMatchPct < 80) warnings.push(`${round(100 - stockMatchPct, 0)}% dos produtos vendidos estão sem saldo físico associado.`);
   if (trackedCostPct < 80) warnings.push(`Custos rastreados cobrem ${round(trackedCostPct, 0)}% da receita; o restante usa CMV percentual.`);
   if (mappedBasePct < 100) warnings.push(`${round(100 - mappedBasePct, 0)}% da demanda sob demanda ainda não está ligada a uma base lisa.`);
+  if (unclassifiedMtoProducts.length > 0) {
+    warnings.push(
+      `${unclassifiedMtoProducts.length} ${unclassifiedMtoProducts.length === 1 ? "produto sob demanda está" : "produtos sob demanda estão"} sem cor explícita no nome e não serão misturados em uma base genérica.`
+    );
+  }
   if (input.settings.cash_budget_brl == null) warnings.push("Defina o caixa disponível para o plano respeitar também o limite financeiro.");
 
   const monitor = products
@@ -1196,6 +1226,7 @@ export function buildPspPlan(input: PspEngineInput): PspPlan {
       stock_match_pct: round(stockMatchPct, 1),
       tracked_cost_pct: round(trackedCostPct, 1),
       made_to_order_count: mtoProducts.length,
+      made_to_order_registered_count: registeredMtoSkus.size,
       mapped_base_pct: round(mappedBasePct, 1),
       warnings,
     },

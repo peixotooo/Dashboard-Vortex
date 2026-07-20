@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildPspPlan } from "../src/lib/psp/engine.ts";
+import { buildPspPlan, inferPspColor } from "../src/lib/psp/engine.ts";
 import { PSP_DEFAULT_SETTINGS } from "../src/lib/psp/defaults.ts";
 import type { PspEngineInput, PspSaleItem } from "../src/lib/psp/types.ts";
 
@@ -158,4 +158,67 @@ test("keeps different blank-base SKUs separate even for the same family and colo
     ["base-classic", "base-oversized"]
   );
   assert.ok(bases.every((row) => row.allocations?.length === 1));
+});
+
+test("accepts only camisetas and regatas as on-demand products", () => {
+  const plan = buildPspPlan(baseInput({
+    sales: [
+      sale(1, "SD-SHIRT", 8, 100, "CAMISETA OVERSIZED PRETA"),
+      sale(1, "SD-SHORT", 8, 100, "BERMUDA MOLETOM PRETA"),
+    ],
+    hub: [
+      { sku: "SD-SHIRT-2", ecc_pai_sku: "SD-SHIRT", nome: "CAMISETA OVERSIZED PRETA M", estoque: 0, sob_demanda: true, atributos: { Tamanho: "M" } },
+      { sku: "SD-SHORT-2", ecc_pai_sku: "SD-SHORT", nome: "BERMUDA MOLETOM PRETA M", estoque: 0, sob_demanda: true, atributos: { Tamanho: "M" } },
+    ],
+  }));
+
+  assert.equal(plan.products.find((row) => row.sku === "sd-shirt")?.made_to_order, true);
+  assert.equal(plan.products.find((row) => row.sku === "sd-short")?.made_to_order, false);
+});
+
+test("uses the curated PSP setting and classifies blank bases by color in the product name", () => {
+  const plan = buildPspPlan(baseInput({
+    sales: [
+      sale(1, "SD-BLACK", 8, 100, "CAMISETA OVERSIZED BASIC PRETA"),
+      sale(1, "SD-WHITE", 8, 100, "REGATA FULL BASIC BRANCA"),
+    ],
+    productSettings: [
+      { sku: "SD-BLACK", family: "camiseta", color: null, units_per_roll: null, lead_time_days: null, base_sku: null, made_to_order_override: true, active: true },
+      { sku: "SD-WHITE", family: "regata", color: null, units_per_roll: null, lead_time_days: null, base_sku: null, made_to_order_override: true, active: true },
+    ],
+  }));
+
+  assert.equal(plan.data_quality.made_to_order_count, 2);
+  assert.equal(plan.data_quality.made_to_order_registered_count, 2);
+  assert.deepEqual(
+    plan.actions
+      .filter((row) => row.kind === "map_base")
+      .map((row) => `${row.family}:${row.color}`)
+      .sort(),
+    ["camiseta:preto", "regata:branco"]
+  );
+});
+
+test("does not combine on-demand products whose names do not identify a color", () => {
+  const plan = buildPspPlan(baseInput({
+    sales: [
+      sale(1, "NO-COLOR-A", 8, 100, "CAMISETA OVERSIZED METAL"),
+      sale(1, "NO-COLOR-B", 8, 100, "CAMISETA OVERSIZED CAOS"),
+    ],
+    productSettings: [
+      { sku: "NO-COLOR-A", family: "camiseta", color: null, units_per_roll: null, lead_time_days: null, base_sku: null, made_to_order_override: true, active: true },
+      { sku: "NO-COLOR-B", family: "camiseta", color: null, units_per_roll: null, lead_time_days: null, base_sku: null, made_to_order_override: true, active: true },
+    ],
+  }));
+
+  const unmappedBases = plan.actions.filter(
+    (row) => row.kind === "map_base" && row.color === "sem cor"
+  );
+  assert.equal(unmappedBases.length, 2);
+  assert.ok(unmappedBases.every((row) => row.allocations?.length === 1));
+  assert.ok(plan.data_quality.warnings.some((warning) => warning.includes("sem cor explícita")));
+});
+
+test("recognizes BK in a product name as a black base", () => {
+  assert.equal(inferPspColor("CAMISETA OVERSIZED HERCULES BK"), "preto");
 });

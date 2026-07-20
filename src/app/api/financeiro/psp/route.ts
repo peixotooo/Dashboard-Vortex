@@ -226,6 +226,12 @@ export async function PUT(request: NextRequest) {
         typeof body.made_to_order_override === "boolean"
           ? body.made_to_order_override
           : null;
+      if (madeToOrderOverride === true && family && family !== "camiseta" && family !== "regata") {
+        return NextResponse.json(
+          { error: "Somente camisetas e regatas podem ser marcadas como sob demanda" },
+          { status: 400 }
+        );
+      }
       const { data, error } = await auth.supabase
         .from("psp_product_settings")
         .upsert(
