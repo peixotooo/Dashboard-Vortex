@@ -1,7 +1,7 @@
 import { readPublicUrlBuffer } from "@/lib/security/external-url";
 import {
+  collectEccosysStockBulkPages,
   eccosysStockBulkParams,
-  parseEccosysStockBulkResponse,
 } from "@/lib/eccosys/stock";
 
 interface EccosysConfig {
@@ -197,20 +197,28 @@ class EccosysClient {
   }
 
   /**
-   * Fetch the complete Eccosys stock snapshot in one request.
-   * Unlike the other collection endpoints, /estoques returns the entire
-   * snapshot even when $count is lower than the number of rows.
+   * Fetch the complete Eccosys stock snapshot in large pages. In production
+   * this turns more than 12k stock rows into three requests instead of 126.
    */
+  async fetchStockBulk<T = unknown>(
+    _workspaceId?: string,
+    params?: Record<string, string>
+  ): Promise<{ rows: T[]; requestCount: number }> {
+    return collectEccosysStockBulkPages<T>((offset) =>
+      this.get<unknown>(
+        "/estoques",
+        _workspaceId,
+        eccosysStockBulkParams(params, offset)
+      )
+    );
+  }
+
   async listStockBulk<T = unknown>(
     _workspaceId?: string,
     params?: Record<string, string>
   ): Promise<T[]> {
-    const payload = await this.get<unknown>(
-      "/estoques",
-      _workspaceId,
-      eccosysStockBulkParams(params)
-    );
-    return parseEccosysStockBulkResponse<T>(payload);
+    const result = await this.fetchStockBulk<T>(_workspaceId, params);
+    return result.rows;
   }
 
   /**

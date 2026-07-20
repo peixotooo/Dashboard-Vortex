@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { eccosys } from "@/lib/eccosys/client";
-import { normalizeEccosysStockQuantity } from "@/lib/eccosys/stock";
+import {
+  indexEccosysStocks,
+  normalizeEccosysStockQuantity,
+} from "@/lib/eccosys/stock";
 import { ml } from "@/lib/ml/client";
 import type { HubProduct, EccosysEstoque } from "@/types/hub";
 
@@ -51,13 +54,12 @@ export async function POST(req: NextRequest) {
   const eccIdStockMap = new Map<number, number>();
   try {
     const allStocks = await eccosys.listStockBulk<EccosysEstoque>(workspaceId);
-    for (const es of allStocks) {
-      const stock = normalizeEccosysStockQuantity(es.estoqueDisponivel);
-      eccStockMap.set(es.codigo, stock);
-      if (es.idProduto) {
-        const pid = parseInt(es.idProduto);
-        if (!isNaN(pid)) eccIdStockMap.set(pid, stock);
-      }
+    const indexedStocks = indexEccosysStocks(allStocks);
+    for (const [sku, stock] of indexedStocks.bySku) {
+      eccStockMap.set(sku, normalizeEccosysStockQuantity(stock.estoqueDisponivel));
+    }
+    for (const [productId, stock] of indexedStocks.byProductId) {
+      eccIdStockMap.set(productId, normalizeEccosysStockQuantity(stock.estoqueDisponivel));
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Erro desconhecido";
@@ -87,10 +89,10 @@ export async function POST(req: NextRequest) {
     try {
       // Get Eccosys stock
       let newStock: number | undefined;
-      if (eccStockMap.has(row.sku)) {
-        newStock = eccStockMap.get(row.sku)!;
-      } else if (row.ecc_id && eccIdStockMap.has(row.ecc_id)) {
+      if (row.ecc_id && eccIdStockMap.has(row.ecc_id)) {
         newStock = eccIdStockMap.get(row.ecc_id)!;
+      } else if (eccStockMap.has(row.sku)) {
+        newStock = eccStockMap.get(row.sku)!;
       }
 
       if (newStock === undefined) {

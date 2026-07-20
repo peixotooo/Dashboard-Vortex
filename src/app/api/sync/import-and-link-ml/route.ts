@@ -3,7 +3,10 @@ import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { ml } from "@/lib/ml/client";
 import { eccosys } from "@/lib/eccosys/client";
-import { normalizeEccosysStockQuantity } from "@/lib/eccosys/stock";
+import {
+  indexEccosysStocks,
+  normalizeEccosysStockQuantity,
+} from "@/lib/eccosys/stock";
 import type { MLData, EccosysProduto, EccosysEstoque, HubProduct } from "@/types/hub";
 
 export const maxDuration = 300;
@@ -534,8 +537,9 @@ export async function POST(req: NextRequest) {
 
     // Pre-fetch ALL stock in bulk (avoids per-child stock fetch in fetchEccosysFamily)
     const allStocks = await eccosys.listStockBulk<EccosysEstoque>(workspaceId);
-    for (const es of allStocks) {
-      eccStockMap.set(es.codigo, normalizeEccosysStockQuantity(es.estoqueDisponivel));
+    const indexedStocks = indexEccosysStocks(allStocks);
+    for (const [sku, stock] of indexedStocks.bySku) {
+      eccStockMap.set(sku, normalizeEccosysStockQuantity(stock.estoqueDisponivel));
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Erro desconhecido";

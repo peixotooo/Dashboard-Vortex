@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { eccosys } from "@/lib/eccosys/client";
+import { indexEccosysStocks } from "@/lib/eccosys/stock";
 import type { EccosysEstoque } from "@/types/hub";
 
 const UPSERT_CHUNK_SIZE = 500;
@@ -35,9 +36,9 @@ export async function persistPspInventorySnapshot(
   capturedAt = new Date().toISOString()
 ): Promise<number> {
   const rowsBySku = new Map<string, InventorySnapshotRow>();
-  for (const stock of stocks) {
+  const indexedStocks = indexEccosysStocks(stocks);
+  for (const stock of indexedStocks.bySku.values()) {
     const sku = String(stock.codigo ?? "").trim();
-    if (!sku) continue;
     rowsBySku.set(sku, {
       workspace_id: workspaceId,
       sku,
@@ -68,11 +69,13 @@ export async function persistPspInventorySnapshot(
 export async function refreshPspInventorySnapshot(
   client: SupabaseClient,
   workspaceId: string
-): Promise<{ count: number; capturedAt: string; eccosysRequests: 1 }> {
-  const stocks = await eccosys.listStockBulk<EccosysEstoque>(workspaceId);
+): Promise<{ count: number; capturedAt: string; eccosysRequests: number }> {
+  const { rows: stocks, requestCount } = await eccosys.fetchStockBulk<EccosysEstoque>(
+    workspaceId
+  );
   const capturedAt = new Date().toISOString();
   const count = await persistPspInventorySnapshot(client, workspaceId, stocks, capturedAt);
-  return { count, capturedAt, eccosysRequests: 1 };
+  return { count, capturedAt, eccosysRequests: requestCount };
 }
 
 export function isMissingPspSchema(error: unknown): boolean {

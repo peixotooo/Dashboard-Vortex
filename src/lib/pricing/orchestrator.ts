@@ -13,7 +13,10 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { eccosys } from "@/lib/eccosys/client";
-import { normalizeEccosysStockQuantity } from "@/lib/eccosys/stock";
+import {
+  indexEccosysStocks,
+  normalizeEccosysStockQuantity,
+} from "@/lib/eccosys/stock";
 import type { EccosysEstoque } from "@/types/hub";
 import { evaluateSku, type EngineDecision, type EngineSnapshot } from "./engine";
 import { computeMargin } from "./composition";
@@ -81,7 +84,7 @@ export type OrchestratorOptions = {
   // Filtra SKUs específicos. Default: todos os ativos do workspace.
   skus?: string[];
   // Override de estoque (Map<sku, units>). Quando omitido, o orchestrator
-  // tenta carregar do Eccosys em uma leitura via listStockBulk(). Se
+  // tenta carregar do Eccosys em poucas leituras via listStockBulk(). Se
   // o workspace não tem Eccosys configurado, assume 0 (engine vai retornar
   // 'hold' por falta de cobertura).
   stock?: StockMap;
@@ -338,7 +341,8 @@ async function loadStockFromEccosys(
   const map = new Map<string, number>();
   try {
     const all = await eccosys.listStockBulk<EccosysEstoque>(workspaceId);
-    for (const es of all) {
+    const indexedStocks = indexEccosysStocks(all);
+    for (const es of indexedStocks.bySku.values()) {
       if (!es.codigo) continue;
       // Eccosys pode retornar negativo quando estoque comprometido > físico.
       // Clamp em 0 — pricing trata isso como sem estoque.
