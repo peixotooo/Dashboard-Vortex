@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildPspPlan, inferPspColor } from "../src/lib/psp/engine.ts";
+import {
+  buildPspPlan,
+  inferPspColor,
+  normalizePspColor,
+} from "../src/lib/psp/engine.ts";
 import { PSP_DEFAULT_SETTINGS } from "../src/lib/psp/defaults.ts";
 import type { PspEngineInput, PspSaleItem } from "../src/lib/psp/types.ts";
 
@@ -199,7 +203,7 @@ test("uses the curated PSP setting and classifies blank bases by color in the pr
   );
 });
 
-test("does not combine on-demand products whose names do not identify a color", () => {
+test("classifies on-demand products without a color in the name as black", () => {
   const plan = buildPspPlan(baseInput({
     sales: [
       sale(1, "NO-COLOR-A", 8, 100, "CAMISETA OVERSIZED METAL"),
@@ -211,20 +215,35 @@ test("does not combine on-demand products whose names do not identify a color", 
     ],
   }));
 
-  const unmappedBases = plan.actions.filter(
-    (row) => row.kind === "map_base" && row.color === "sem cor"
+  const blackBases = plan.actions.filter(
+    (row) => row.kind === "map_base" && row.color === "preto"
   );
-  assert.equal(unmappedBases.length, 2);
-  assert.ok(unmappedBases.every((row) => row.allocations?.length === 1));
-  assert.deepEqual(
-    unmappedBases.map((row) => row.name).sort(),
-    [
-      "Base a definir · CAMISETA OVERSIZED CAOS",
-      "Base a definir · CAMISETA OVERSIZED METAL",
-    ]
+  assert.equal(blackBases.length, 1);
+  assert.equal(blackBases[0].name, "Base Camiseta Preto");
+  assert.equal(blackBases[0].allocations?.length, 2);
+  assert.ok(!plan.data_quality.warnings.some((warning) => warning.includes("sem cor explícita")));
+});
+
+test("combines gray and charcoal on-demand products in the same base", () => {
+  const plan = buildPspPlan(baseInput({
+    sales: [
+      sale(1, "GRAY", 8, 100, "CAMISETA OVERSIZED BASIC CINZA"),
+      sale(1, "CHARCOAL", 8, 100, "CAMISETA OVERSIZED BASIC CHUMBO"),
+    ],
+    productSettings: [
+      { sku: "GRAY", family: "camiseta", color: null, units_per_roll: null, lead_time_days: null, base_sku: null, made_to_order_override: true, active: true },
+      { sku: "CHARCOAL", family: "camiseta", color: "chumbo", units_per_roll: null, lead_time_days: null, base_sku: null, made_to_order_override: true, active: true },
+    ],
+  }));
+
+  const grayBases = plan.actions.filter(
+    (row) => row.kind === "map_base" && row.color === "cinza"
   );
-  assert.ok(unmappedBases.every((row) => row.reasons.includes("1 produto sob demanda depende desta base")));
-  assert.ok(plan.data_quality.warnings.some((warning) => warning.includes("sem cor explícita")));
+  assert.equal(grayBases.length, 1);
+  assert.equal(grayBases[0].name, "Base Camiseta Cinza");
+  assert.equal(grayBases[0].allocations?.length, 2);
+  assert.equal(inferPspColor("CAMISETA OVERSIZED BASIC CHUMBO"), "cinza");
+  assert.equal(normalizePspColor("cinza/chumbo"), "cinza");
 });
 
 test("recognizes BK in a product name as a black base", () => {

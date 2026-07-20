@@ -140,7 +140,7 @@ const COLOR_PATTERNS: Array<[RegExp, string]> = [
   [/\bazul diesel\b/, "azul diesel"],
   [/\bverde militar\b/, "verde militar"],
   [/\bverde oliva\b|\boliva\b/, "oliva"],
-  [/\bcinza chumbo\b|\bchumbo\b/, "chumbo"],
+  [/\bcinza chumbo\b|\bchumbo\b/, "cinza"],
   [/\bcinza mescla\b|\bmescla\b/, "mescla"],
   [/\bbordo\b|\bbordeaux\b/, "bordo"],
   [/\bpret[oa]\b|\bblack\b|\bbk\b/, "preto"],
@@ -158,6 +158,13 @@ const COLOR_PATTERNS: Array<[RegExp, string]> = [
   [/\bamarel[oa]\b|\byellow\b/, "amarelo"],
   [/\bcamuflad[oa]\b/, "camuflado"],
 ];
+
+export function normalizePspColor(value: string | null | undefined): string {
+  const color = normalizeText(value);
+  if (!color) return "sem cor";
+  if (color === "chumbo" || color === "cinza chumbo") return "cinza";
+  return color;
+}
 
 export function inferPspColor(name: string): string {
   const text = normalizeText(name);
@@ -652,13 +659,24 @@ export function buildPspPlan(input: PspEngineInput): PspPlan {
     const name = catalog?.name || hub.nameByParent.get(row.sku) || row.name || row.sku;
     const inferredFamily = inferPspFamily(name, catalog?.category);
     const family = (productSetting?.family as PspFamily | null) || inferredFamily;
-    const color = productSetting?.color?.trim().toLowerCase() || inferPspColor(name);
+    const configuredColor = productSetting?.color
+      ? normalizePspColor(productSetting.color)
+      : null;
+    const inferredColor = inferPspColor(name);
     const requestedMadeToOrder =
       productSetting?.made_to_order_override ?? hub.madeToOrder.has(row.sku);
     const madeToOrder =
       requestedMadeToOrder &&
       isPspOnDemandFamily(inferredFamily) &&
       isPspOnDemandFamily(family);
+    const color =
+      configuredColor && configuredColor !== "sem cor"
+        ? configuredColor
+        : inferredColor !== "sem cor"
+          ? inferredColor
+          : madeToOrder
+            ? "preto"
+            : "sem cor";
     const unitsPerRoll = Math.max(
       1,
       Math.round(

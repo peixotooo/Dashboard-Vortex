@@ -7,6 +7,7 @@ import {
   inferPspColor,
   inferPspFamily,
   isPspOnDemandFamily,
+  normalizePspColor,
 } from "../src/lib/psp/engine.ts";
 
 type CsvRow = {
@@ -18,7 +19,8 @@ type ImportedProduct = {
   sku: string;
   name: string;
   family: "camiseta" | "regata";
-  color: string | null;
+  color: string;
+  defaultedToBlack: boolean;
 };
 
 function argument(name: string): string | null {
@@ -74,13 +76,14 @@ for (const row of input) {
     sku,
     name,
     family,
-    color: inferredColor === "sem cor" ? null : inferredColor,
+    color: inferredColor === "sem cor" ? "preto" : inferredColor,
+    defaultedToBlack: inferredColor === "sem cor",
   });
 }
 
 const products = [...productsBySku.values()];
 const duplicateCount = input.length - products.length;
-const missingColor = products.filter((product) => product.color == null);
+const defaultedToBlack = products.filter((product) => product.defaultedToBlack);
 const sourceDate = path.basename(file).match(/(\d{4}-\d{2}-\d{2})/)?.[1] ?? "sem data";
 const apply = process.argv.includes("--apply");
 
@@ -89,9 +92,9 @@ console.log(`SKUs únicos: ${products.length}`);
 console.log(`Duplicatas removidas: ${duplicateCount}`);
 console.log(`Camisetas: ${products.filter((product) => product.family === "camiseta").length}`);
 console.log(`Regatas: ${products.filter((product) => product.family === "regata").length}`);
-console.log(`Sem cor explícita no nome: ${missingColor.length}`);
-if (missingColor.length > 0) {
-  console.log(missingColor.map((product) => `${product.sku} ${product.name}`).join("\n"));
+console.log(`Sem cor no nome, classificados como preto: ${defaultedToBlack.length}`);
+if (defaultedToBlack.length > 0) {
+  console.log(defaultedToBlack.map((product) => `${product.sku} ${product.name}`).join("\n"));
 }
 
 if (!apply) {
@@ -116,11 +119,14 @@ const existingBySku = new Map(
 const now = new Date().toISOString();
 const rows = products.map((product) => {
   const current = existingBySku.get(product.sku);
+  const currentColor = current?.color
+    ? normalizePspColor(String(current.color))
+    : null;
   return {
     workspace_id: workspaceId,
     sku: product.sku,
     family: current?.family ?? product.family,
-    color: current?.color ?? product.color,
+    color: currentColor && currentColor !== "sem cor" ? currentColor : product.color,
     units_per_roll: current?.units_per_roll ?? null,
     lead_time_days: current?.lead_time_days ?? null,
     base_sku: current?.base_sku ?? null,
