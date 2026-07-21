@@ -2,6 +2,7 @@ import { decrypt } from "@/lib/encryption";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { parseInstagramProfilePayload } from "@/lib/instagram/profile";
 
 // --- Types ---
 
@@ -141,18 +142,7 @@ export async function scrapeInstagramProfile(
     throw new Error(`Profile not found: ${username}`);
   }
 
-  const raw = items[0];
-  return {
-    username: raw.username || username,
-    fullName: raw.fullName || raw.full_name || "",
-    biography: raw.biography || raw.bio || "",
-    followersCount: raw.followersCount ?? raw.followers ?? 0,
-    followingCount: raw.followingCount ?? raw.following ?? 0,
-    postsCount: raw.postsCount ?? raw.posts ?? 0,
-    profilePicUrl: raw.profilePicUrl || raw.profilePicUrlHD || raw.profile_pic_url || "",
-    externalUrl: raw.externalUrl || raw.external_url || undefined,
-    businessCategory: raw.businessCategory || raw.category || undefined,
-  };
+  return parseInstagramProfilePayload(items[0], username);
 }
 
 export async function scrapeInstagramPosts(

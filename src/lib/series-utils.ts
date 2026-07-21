@@ -43,6 +43,18 @@ export function makeDelta(
   return { value, pct };
 }
 
+/** Retorna a variação apenas quando os dois pontos representam dias consecutivos. */
+export function dailyDeltaBetween(
+  currentDate: string,
+  currentValue: number,
+  previousDate?: string | null,
+  previousValue?: number | null
+): number | null {
+  if (previousDate == null || previousValue == null) return null;
+  if (daysBetween(previousDate, currentDate) !== 1) return null;
+  return currentValue - previousValue;
+}
+
 /**
  * Acha o ponto de referência ~N dias atrás. Pega o ponto cuja data mais se
  * aproxima de (alvo = atual - N), desde que dentro da tolerância — senão
