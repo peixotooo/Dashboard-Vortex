@@ -17,6 +17,7 @@ import {
   type InstagramPost,
 } from "@/lib/apify-api";
 import { spDateString } from "@/lib/series-utils";
+import { assertInstagramProfileContinuity } from "@/lib/instagram/profile";
 
 // Re-export pra quem importa daqui (ex.: a rota de snapshot on-demand).
 export { spDateString };
@@ -105,6 +106,25 @@ export async function persistSnapshot(
 ): Promise<void> {
   const { profile, posts, metrics } = captured;
   const now = new Date().toISOString();
+
+  const { data: previousProfile, error: previousProfileError } = await db
+    .from("instagram_profiles")
+    .select("followers_count, posts_count")
+    .eq("workspace_id", workspaceId)
+    .eq("username", username)
+    .maybeSingle();
+  if (previousProfileError) {
+    throw new Error(`instagram_profiles: ${previousProfileError.message}`);
+  }
+  assertInstagramProfileContinuity(
+    profile,
+    previousProfile
+      ? {
+          followersCount: previousProfile.followers_count,
+          postsCount: previousProfile.posts_count,
+        }
+      : null
+  );
 
   // 1. Cache do perfil (último estado conhecido).
   const { error: profileError } = await db.from("instagram_profiles").upsert(

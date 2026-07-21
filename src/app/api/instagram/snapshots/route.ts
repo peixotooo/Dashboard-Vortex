@@ -8,6 +8,7 @@ import {
   toLabel,
   makeDelta,
   refByDaysAgo,
+  dailyDeltaBetween,
 } from "@/lib/series-utils";
 
 interface SnapshotRow {
@@ -63,7 +64,7 @@ export async function GET(request: NextRequest) {
     );
     const since = shiftDays(new Date().toISOString().slice(0, 10), -days);
 
-    const [{ data: snapRows }, { data: profileRow }] = await Promise.all([
+    const [snapshotsResult, profileResult] = await Promise.all([
       admin
         .from("instagram_snapshots")
         .select(
@@ -83,7 +84,20 @@ export async function GET(request: NextRequest) {
         .maybeSingle(),
     ]);
 
-    const rows = (snapRows || []) as SnapshotRow[];
+    if (snapshotsResult.error) throw snapshotsResult.error;
+    if (profileResult.error) throw profileResult.error;
+
+    const profileRow = profileResult.data;
+    const rawRows = (snapshotsResult.data || []) as SnapshotRow[];
+    const establishedProfile =
+      (profileRow?.followers_count ?? 0) > 0 ||
+      rawRows.some((row) => row.followers_count > 0);
+    const rows = rawRows.filter(
+      (row) =>
+        Number.isFinite(row.followers_count) &&
+        row.followers_count >= 0 &&
+        (!establishedProfile || row.followers_count > 0)
+    );
 
     const profile = profileRow
       ? {
@@ -124,7 +138,12 @@ export async function GET(request: NextRequest) {
         avgLikes: r.avg_likes,
         avgComments: r.avg_comments,
         engagementRate: r.engagement_rate,
-        dailyDelta: prev ? r.followers_count - prev.followers_count : null,
+        dailyDelta: dailyDeltaBetween(
+          r.captured_on,
+          r.followers_count,
+          prev?.captured_on,
+          prev?.followers_count
+        ),
       };
     });
 
@@ -173,6 +192,9 @@ export async function GET(request: NextRequest) {
       current,
       deltas,
       engagement,
+      dataQuality: {
+        ignoredSnapshots: rawRows.length - rows.length,
+      },
     });
   } catch (error) {
     if (error instanceof AuthError) return handleAuthError(error);
