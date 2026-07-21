@@ -55,3 +55,8 @@ clientes-bulking-*.csv
 scripts/.thesale-tt-state.json
 scripts/.thesale-creatives.json
 output/senseboard-export/
+
+# PII — exports da migração VNDA → Medusa (clientes e histórico de pedidos).
+# O CÓDIGO dos exportadores é versionado; os DADOS reais, nunca.
+output/medusa/customers-export.json
+output/medusa/orders-export.json
