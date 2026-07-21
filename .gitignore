@@ -55,3 +55,5 @@ clientes-bulking-*.csv
 scripts/.thesale-tt-state.json
 scripts/.thesale-creatives.json
 output/senseboard-export/
+# Export de cupons Club/Team — pode conter e-mail de membro (owner). NAO COMMITAR.
+output/medusa/coupons-export.json
