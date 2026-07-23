@@ -14,16 +14,24 @@ import { ReportDrillDialog } from "../report-drill-dialog";
 
 const YEARS = Array.from({ length: 11 }, (_, i) => 2022 + i);
 
+const NOW = new Date();
+
 export default function DrePage() {
   const { workspace } = useWorkspace();
-  const [year, setYear] = React.useState(new Date().getFullYear());
+  const [year, setYear] = React.useState(NOW.getFullYear());
   const [level, setLevel] = React.useState<"resumido" | "expandido">("resumido");
   const [status, setStatus] = React.useState("todos");
+  const [ytd, setYtd] = React.useState(true); // "até o mês atual" (padrão)
   const [lines, setLines] = React.useState<ReportLine[] | null>(null);
   const [hideZeros, setHideZeros] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [drill, setDrill] = React.useState<{ line: ReportLine; month: number } | null>(null);
+
+  // o corte "até o mês atual" só faz sentido no ano corrente; anos passados
+  // já estão completos e anos futuros são todos "planejados".
+  const isCurrentYear = year === NOW.getFullYear();
+  const visibleMonths = ytd && isCurrentYear ? NOW.getMonth() + 1 : 12;
 
   const load = React.useCallback(async () => {
     if (!workspace?.id) return;
@@ -76,6 +84,12 @@ export default function DrePage() {
               <TabsTrigger value="expandido">Expandido</TabsTrigger>
             </TabsList>
           </Tabs>
+          {isCurrentYear && (
+            <label className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer whitespace-nowrap">
+              <input type="checkbox" checked={ytd} onChange={(e) => setYtd(e.target.checked)} />
+              Até o mês atual
+            </label>
+          )}
           {level === "expandido" && (
             <label className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer whitespace-nowrap">
               <input type="checkbox" checked={hideZeros} onChange={(e) => setHideZeros(e.target.checked)} />
@@ -105,9 +119,18 @@ export default function DrePage() {
       {lines && (
         <>
           <p className="-mt-1 text-xs text-muted-foreground">
+            {visibleMonths < 12
+              ? `Mostrando até ${["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"][visibleMonths - 1]}/${year} (mês atual). Acumulado e média consideram só esse período — desmarque "Até o mês atual" para ver o ano todo. `
+              : ""}
             Dica: clique em qualquer valor mensal para ver os lançamentos que compõem aquele número.
           </p>
-          <ReportTable lines={lines} showPct hideZeros={hideZeros} onDrill={(line, month) => setDrill({ line, month })} />
+          <ReportTable
+            lines={lines}
+            showPct
+            hideZeros={hideZeros}
+            visibleMonths={visibleMonths}
+            onDrill={(line, month) => setDrill({ line, month })}
+          />
         </>
       )}
 

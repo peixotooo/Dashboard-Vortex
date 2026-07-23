@@ -36,7 +36,7 @@ const podeDrill = (line: ReportLine) => !LINHAS_DERIVADAS.has(line.key);
 
 export type DrillHandler = (line: ReportLine, month: number) => void;
 
-function Row({ line, depth, showPct, onDrill }: { line: ReportLine; depth: number; showPct: boolean; onDrill?: DrillHandler }) {
+function Row({ line, depth, showPct, onDrill, monthCount }: { line: ReportLine; depth: number; showPct: boolean; onDrill?: DrillHandler; monthCount: number }) {
   const [open, setOpen] = React.useState(false);
   const hasChildren = !!line.children?.length;
   const isSection = line.op === "" && line.emphasis && line.months.every((v) => Math.abs(v) < 0.005);
@@ -58,10 +58,10 @@ function Row({ line, depth, showPct, onDrill }: { line: ReportLine; depth: numbe
           </button>
         </TableCell>
         {isSection ? (
-          <TableCell colSpan={12 + 2 + (showPct ? 1 : 0)} className="bg-muted/60" />
+          <TableCell colSpan={monthCount + 2 + (showPct ? 1 : 0)} className="bg-muted/60" />
         ) : (
           <>
-            {line.months.map((v, m) => {
+            {line.months.slice(0, monthCount).map((v, m) => {
               const canDrill = !!onDrill && podeDrill(line) && Math.abs(v) >= 0.005;
               return (
                 <TableCell key={m} className={`text-right tabular-nums ${valueClass(line, v)}`}>
@@ -91,7 +91,7 @@ function Row({ line, depth, showPct, onDrill }: { line: ReportLine; depth: numbe
         )}
       </TableRow>
       {open &&
-        line.children!.map((c) => <Row key={c.key} line={c} depth={depth + 1} showPct={showPct} onDrill={onDrill} />)}
+        line.children!.map((c) => <Row key={c.key} line={c} depth={depth + 1} showPct={showPct} onDrill={onDrill} monthCount={monthCount} />)}
     </>
   );
 }
@@ -102,21 +102,50 @@ function pruneZeros(lines: ReportLine[]): ReportLine[] {
     .filter((l) => l.emphasis || Math.abs(l.accum) >= 0.005 || (l.children?.length ?? 0) > 0);
 }
 
-export function ReportTable({ lines: rawLines, showPct = true, extraTop, hideZeros = false, onDrill }: {
+// Recalcula Acum/Média/% considerando só os primeiros `n` meses (visão "até o
+// mês atual"): sem isso, recorrências e depreciação de meses futuros inflam o
+// acumulado. O % (participação na receita líquida) usa o acum da receita
+// líquida no MESMO recorte, senão a vertical ficaria inconsistente.
+function limitToMonths(lines: ReportLine[], n: number, netRevenueAccum: number): ReportLine[] {
+  const rebuild = (l: ReportLine): ReportLine => {
+    const accum = l.months.slice(0, n).reduce((a, b) => a + b, 0);
+    const active = l.months.slice(0, n).filter((v) => Math.abs(v) >= 0.005).length || 1;
+    return {
+      ...l,
+      accum,
+      media: accum / active,
+      pct: netRevenueAccum ? (accum / netRevenueAccum) * 100 : null,
+      children: l.children?.map(rebuild),
+    };
+  };
+  return lines.map(rebuild);
+}
+
+export function ReportTable({ lines: rawLines, showPct = true, extraTop, hideZeros = false, onDrill, visibleMonths = 12 }: {
   lines: ReportLine[];
   showPct?: boolean;
   extraTop?: React.ReactNode;
   hideZeros?: boolean;
   onDrill?: DrillHandler;
+  visibleMonths?: number;
 }) {
-  const lines = React.useMemo(() => (hideZeros ? pruneZeros(rawLines) : rawLines), [rawLines, hideZeros]);
+  const monthCount = Math.max(1, Math.min(12, visibleMonths));
+  const lines = React.useMemo(() => {
+    let out = rawLines;
+    if (monthCount < 12) {
+      const netAccum =
+        rawLines.find((l) => l.key === "receita_liquida")?.months.slice(0, monthCount).reduce((a, b) => a + b, 0) ?? 0;
+      out = limitToMonths(out, monthCount, netAccum);
+    }
+    return hideZeros ? pruneZeros(out) : out;
+  }, [rawLines, hideZeros, monthCount]);
   return (
     <div className="overflow-x-auto rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead className="sticky left-0 z-10 bg-background min-w-[260px]">Descrição</TableHead>
-            {MONTHS_SHORT.map((m) => (
+            {MONTHS_SHORT.slice(0, monthCount).map((m) => (
               <TableHead key={m} className="text-right min-w-[88px]">{m}</TableHead>
             ))}
             <TableHead className="text-right min-w-[100px]">Acum.</TableHead>
@@ -127,7 +156,7 @@ export function ReportTable({ lines: rawLines, showPct = true, extraTop, hideZer
         <TableBody>
           {extraTop}
           {lines.map((l) => (
-            <Row key={l.key} line={l} depth={0} showPct={showPct} onDrill={onDrill} />
+            <Row key={l.key} line={l} depth={0} showPct={showPct} onDrill={onDrill} monthCount={monthCount} />
           ))}
         </TableBody>
       </Table>
