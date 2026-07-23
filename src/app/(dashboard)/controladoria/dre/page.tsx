@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/select";
 import { useWorkspace } from "@/lib/workspace-context";
 import { ReportTable, type ReportLine } from "../report-table";
+import { ReportDrillDialog } from "../report-drill-dialog";
 
 const YEARS = Array.from({ length: 11 }, (_, i) => 2022 + i);
 
@@ -22,6 +23,7 @@ export default function DrePage() {
   const [hideZeros, setHideZeros] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [drill, setDrill] = React.useState<{ line: ReportLine; month: number } | null>(null);
 
   const load = React.useCallback(async () => {
     if (!workspace?.id) return;
@@ -100,7 +102,21 @@ export default function DrePage() {
         </div>
       )}
 
-      {lines && <ReportTable lines={lines} showPct hideZeros={hideZeros} />}
+      {lines && (
+        <>
+          <p className="-mt-1 text-xs text-muted-foreground">
+            Dica: clique em qualquer valor mensal para ver os lançamentos que compõem aquele número.
+          </p>
+          <ReportTable lines={lines} showPct hideZeros={hideZeros} onDrill={(line, month) => setDrill({ line, month })} />
+        </>
+      )}
+
+      <ReportDrillDialog
+        workspaceId={workspace?.id ?? ""}
+        year={year}
+        target={drill}
+        onOpenChange={(o) => { if (!o) setDrill(null); }}
+      />
     </div>
   );
 }
