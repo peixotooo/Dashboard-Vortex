@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, AlertTriangle, Plus, Pencil, Trash2, Copy, Check, X, Download, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, AlertTriangle, Plus, Pencil, Trash2, Copy, Check, X, Download, FileUp, ChevronLeft, ChevronRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import { formatCurrency } from "@/lib/utils";
 import { fmtDateBR } from "@/lib/controladoria/format";
 import { PartnerInput } from "../partner-input";
 import { SearchSelect, type Option } from "../search-select";
+import { ImportXmlDialog } from "./import-xml-dialog";
 
 /** Label legível de uma classificação a partir do caminho completo. */
 function clsLabel(c: { path: string; name: string; category: string }): string {
@@ -94,6 +95,7 @@ export default function LancamentosPage() {
   const [total, setTotal] = React.useState(0);
   const [totals, setTotals] = React.useState<{ entradas: number; saidas: number; saldo: number; count: number } | null>(null);
   const [totalsLoading, setTotalsLoading] = React.useState(true);
+  const [importOpen, setImportOpen] = React.useState(false);
   const [page, setPage] = React.useState(1);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -365,6 +367,9 @@ export default function LancamentosPage() {
           <Button variant="outline" onClick={exportCsv} disabled={!rows.length}>
             <Download className="mr-1 h-4 w-4" /> Exportar página
           </Button>
+          <Button variant="outline" onClick={() => setImportOpen(true)}>
+            <FileUp className="mr-1 h-4 w-4" /> Importar XML
+          </Button>
           <Button onClick={() => setForm({ ...EMPTY_FORM })}>
             <Plus className="mr-1 h-4 w-4" /> Novo lançamento
           </Button>
@@ -624,6 +629,15 @@ export default function LancamentosPage() {
           </Button>
         </div>
       </div>
+
+      <ImportXmlDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        workspaceId={workspace?.id ?? ""}
+        clsOptions={clsFormOptions}
+        accOptions={accOptions}
+        onImported={() => { void load(); setReloadTick((t) => t + 1); }}
+      />
 
       <Dialog open={!!form} onOpenChange={(o) => !o && setForm(null)}>
         <DialogContent className="max-w-2xl">
