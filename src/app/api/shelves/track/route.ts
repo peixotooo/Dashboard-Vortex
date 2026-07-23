@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { validateApiKey } from "@/lib/shelves/api-key";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { buildCorsHeaders } from "@/lib/cors";
+import { shelfSourceColumnsAvailable } from "@/lib/shelves/source";
 
 export async function POST(request: NextRequest) {
   const CORS_HEADERS = buildCorsHeaders(request);
@@ -55,6 +56,10 @@ export async function POST(request: NextRequest) {
 
   const admin = createAdminClient();
 
+  // Carimba a loja dona do evento (source da key). Tolerante à migration-143:
+  // sem as colunas no banco, grava exatamente como antes (tudo é vnda).
+  const hasSource = await shelfSourceColumnsAvailable();
+
   try {
     // Insert event
     await admin.from("shelf_events").insert({
@@ -66,6 +71,7 @@ export async function POST(request: NextRequest) {
       page_type: page_type || null,
       shelf_config_id: shelf_config_id || null,
       revenue: revenue || null,
+      ...(hasSource ? { source: auth.source } : {}),
     });
 
     // Update consumer history on pageview
@@ -81,8 +87,13 @@ export async function POST(request: NextRequest) {
           product_id: product_id as string,
           views: 1,
           last_seen: new Date().toISOString(),
+          ...(hasSource ? { source: auth.source } : {}),
         },
-        { onConflict: "workspace_id,consumer_id,product_id" }
+        {
+          onConflict: hasSource
+            ? "workspace_id,consumer_id,product_id,source"
+            : "workspace_id,consumer_id,product_id",
+        }
       );
 
       // Increment views for existing records

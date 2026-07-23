@@ -6,6 +6,21 @@ import {
   shelfImageKey,
   type VndaCatalogImage,
 } from "@/lib/shelves/image-utils";
+import { shelfSourceColumnsAvailable } from "@/lib/shelves/source";
+
+// Depois da migration-143 a UNIQUE de shelf_products passa a incluir `source`
+// (linhas vnda e medusa do mesmo produto coexistem). O sync VNDA é tolerante à
+// ordem de deploy: com as colunas no banco usa a chave nova e carimba
+// source='vnda'; sem elas, comporta-se exatamente como antes.
+async function vndaUpsertOptions(): Promise<{
+  onConflict: string;
+  withSource: boolean;
+}> {
+  const hasSource = await shelfSourceColumnsAvailable();
+  return hasSource
+    ? { onConflict: "workspace_id,product_id,source", withSource: true }
+    : { onConflict: "workspace_id,product_id", withSource: false };
+}
 
 // --- Types ---
 
@@ -213,11 +228,15 @@ async function loadExistingImages(
   if (productIds.length === 0) return new Map();
 
   const admin = createAdminClient();
-  const { data } = await admin
+  let query = admin
     .from("shelf_products")
     .select("product_id, image_url, image_url_2")
     .eq("workspace_id", workspaceId)
     .in("product_id", productIds);
+  if (await shelfSourceColumnsAvailable()) {
+    query = query.eq("source", "vnda");
+  }
+  const { data } = await query;
 
   const map = new Map<string, ExistingShelfImages>();
   for (const row of data ?? []) {
@@ -298,14 +317,19 @@ export async function syncCatalog(workspaceId: string): Promise<SyncResult> {
     let synced = 0;
     let errors = 0;
 
+    const upsertOptions = await vndaUpsertOptions();
+
     // Process in batches of 50
     const batchSize = 50;
     for (let i = 0; i < vndaProducts.length; i += batchSize) {
       const batch = vndaProducts.slice(i, i + batchSize);
-      const rows = await mapProductsWithImages(batch, workspaceId, config);
+      const mapped = await mapProductsWithImages(batch, workspaceId, config);
+      const rows = upsertOptions.withSource
+        ? mapped.map((row) => ({ ...row, source: "vnda" }))
+        : mapped;
 
       const { error } = await admin.from("shelf_products").upsert(rows, {
-        onConflict: "workspace_id,product_id",
+        onConflict: upsertOptions.onConflict,
         ignoreDuplicates: false,
       });
 
@@ -366,10 +390,13 @@ export async function syncSingleProduct(
     existing?.image_url_2
   );
 
-  await admin.from("shelf_products").upsert(row, {
-    onConflict: "workspace_id,product_id",
-    ignoreDuplicates: false,
-  });
+  const upsertOptions = await vndaUpsertOptions();
+  await admin
+    .from("shelf_products")
+    .upsert(upsertOptions.withSource ? { ...row, source: "vnda" } : row, {
+      onConflict: upsertOptions.onConflict,
+      ignoreDuplicates: false,
+    });
 }
 
 // --- Map VNDA product to shelf_products row ---
