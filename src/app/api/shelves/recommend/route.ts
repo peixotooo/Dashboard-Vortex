@@ -64,6 +64,8 @@ export async function GET(request: NextRequest) {
   try {
     const products = await getRecommendations({
       workspaceId: auth.workspaceId,
+      // Fonte da key (vnda = loja atual; medusa = app.bulking.com.br).
+      source: auth.source,
       algorithm,
       consumerId,
       productId,

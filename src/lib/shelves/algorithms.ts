@@ -13,6 +13,21 @@ import {
   shelfImageKey,
   type VndaCatalogImage,
 } from "@/lib/shelves/image-utils";
+import {
+  DEFAULT_SHELF_SOURCE,
+  normalizeShelfSource,
+  shelfSourceColumnsAvailable,
+  type ShelfSource,
+} from "@/lib/shelves/source";
+import {
+  clearMedusaAlgorithmCaches,
+  getMedusaBestsellers,
+  getMedusaCustomTags,
+  getMedusaLastViewed,
+  getMedusaMostPopular,
+  getMedusaNews,
+  getMedusaOffers,
+} from "@/lib/shelves/medusa-algorithms";
 
 // --- Types ---
 
@@ -25,6 +40,11 @@ export interface RecommendationParams {
   tags?: string[];
   priceMin?: number;
   priceMax?: number;
+  /**
+   * Fonte da loja dona da requisição (vem da shelf_api_key). Default 'vnda':
+   * a key legada e qualquer caminho antigo ficam bit-a-bit idênticos.
+   */
+  source?: ShelfSource;
 }
 
 export interface ShelfProduct {
@@ -185,7 +205,8 @@ async function fetchProductHoverImage(
 
 async function withCatalogImages(
   workspaceId: string,
-  products: ShelfProduct[]
+  products: ShelfProduct[],
+  source: ShelfSource = DEFAULT_SHELF_SOURCE
 ): Promise<ShelfProduct[]> {
   if (products.length === 0) return products;
 
@@ -193,11 +214,15 @@ async function withCatalogImages(
   const ids = [...new Set(products.map((p) => p.product_id).filter(Boolean))];
   if (ids.length === 0) return products;
 
-  const { data, error } = await admin
+  let query = admin
     .from("shelf_products")
     .select("product_id, name, image_url, image_url_2, product_url")
     .eq("workspace_id", workspaceId)
     .in("product_id", ids);
+  if (await shelfSourceColumnsAvailable()) {
+    query = query.eq("source", source);
+  }
+  const { data, error } = await query;
 
   const rows = error || !data ? [] : data;
 
@@ -231,6 +256,10 @@ async function withCatalogImages(
     };
   });
 
+  // Enriquecimento de hover via API/HTML da VNDA: só faz sentido (e só roda)
+  // para a fonte vnda. As linhas medusa já trazem as duas imagens do sync.
+  if (source !== "vnda") return enriched;
+
   const missingHover = enriched
     .filter((product) => !product.image_url_2 && product.product_url)
     .slice(0, 16);
@@ -251,15 +280,18 @@ async function withCatalogImages(
     }))
   );
 
+  const sourceFilterable = await shelfSourceColumnsAvailable();
   const hoverById = new Map<string, string>();
   for (const item of resolved) {
     if (!item.imageUrl2) continue;
     hoverById.set(item.product.product_id, item.imageUrl2);
-    await admin
+    let update = admin
       .from("shelf_products")
       .update({ image_url_2: item.imageUrl2 })
       .eq("workspace_id", workspaceId)
       .eq("product_id", item.product.product_id);
+    if (sourceFilterable) update = update.eq("source", source);
+    await update;
   }
 
   if (hoverById.size === 0) return enriched;
@@ -332,31 +364,52 @@ export async function getRecommendations(
   // Clear caches to prevent stale data across warm invocations
   configCache.clear();
   catalogCache.clear();
+  clearMedusaAlgorithmCaches();
 
-  switch (params.algorithm) {
+  // Roteamento por fonte: 'vnda' (default, caminho legado intacto) ou 'medusa'
+  // (loja nova — catálogo/vendas Medusa, GA4 filtrado por hostname). Algoritmos
+  // que já leem só o banco (shelf_products/crm) são compartilhados e apenas
+  // filtram por source.
+  const source = normalizeShelfSource(params.source);
+  const p: RecommendationParams = { ...params, source };
+  const medusa = source === "medusa";
+
+  switch (p.algorithm) {
     case "bestsellers":
-      return getBestsellers(params);
+      return medusa ? getMedusaBestsellers(p) : getBestsellers(p);
     case "bestseller_camisetas":
-      return getBestsellerCamisetas(params);
+      return getBestsellerCamisetas(p);
     case "bestsellers_store":
-      return getBestsellersStore(params);
+      return getBestsellersStore(p);
     case "news":
-      return getNews(params);
+      return medusa ? getMedusaNews(p) : getNews(p);
     case "offers":
-      return getOffers(params);
+      return medusa ? getMedusaOffers(p) : getOffers(p);
     case "most_popular":
-      return getMostPopular(params);
+      return medusa ? getMedusaMostPopular(p) : getMostPopular(p);
     case "last_viewed":
-      return getLastViewed(params);
+      return medusa ? getMedusaLastViewed(p) : getLastViewed(p);
     case "custom_tags":
-      return getCustomTags(params);
+      return medusa ? getMedusaCustomTags(p) : getCustomTags(p);
     case "related_products":
-      return getRelatedProducts(params);
+      return getRelatedProducts(p);
     case "price_range":
-      return getPriceRange(params);
+      return getPriceRange(p);
     default:
-      throw new Error(`Unknown algorithm: ${params.algorithm}`);
+      throw new Error(`Unknown algorithm: ${p.algorithm}`);
   }
+}
+
+// Fallbacks roteados por fonte: usados pelos algoritmos compartilhados para
+// que um déficit na fonte medusa NUNCA caia na API da VNDA (e vice-versa).
+function fallbackBestsellers(params: RecommendationParams): Promise<ShelfProduct[]> {
+  return params.source === "medusa"
+    ? getMedusaBestsellers(params)
+    : getBestsellers(params);
+}
+
+function fallbackNews(params: RecommendationParams): Promise<ShelfProduct[]> {
+  return params.source === "medusa" ? getMedusaNews(params) : getNews(params);
 }
 
 // --- Algorithms ---
@@ -442,6 +495,7 @@ async function getBestsellerCamisetas(
   params: RecommendationParams
 ): Promise<ShelfProduct[]> {
   const admin = createAdminClient();
+  const sourceFilterable = await shelfSourceColumnsAvailable();
 
   // 1) ranking por unidades vendidas (snapshot ABC mais recente)
   const { data: snap } = await admin
@@ -465,13 +519,15 @@ async function getBestsellerCamisetas(
   const byName = new Map<string, ShelfProduct>();
   let from = 0;
   while (true) {
-    const { data, error } = await admin
+    let query = admin
       .from("shelf_products")
       .select("product_id, name, price, sale_price, image_url, image_url_2, product_url, category, tags, in_stock")
       .eq("workspace_id", params.workspaceId)
       .eq("active", true)
       .eq("in_stock", true)
       .range(from, from + PAGE - 1);
+    if (sourceFilterable) query = query.eq("source", params.source ?? DEFAULT_SHELF_SOURCE);
+    const { data, error } = await query;
     if (error) throw new Error(error.message);
     if (!data || data.length === 0) break;
     for (const p of data as ShelfProduct[]) {
@@ -498,9 +554,9 @@ async function getBestsellerCamisetas(
     }
   }
 
-  if (results.length === 0) return getBestsellers(params);
+  if (results.length === 0) return fallbackBestsellers(params);
 
-  return withCatalogImages(params.workspaceId, results);
+  return withCatalogImages(params.workspaceId, results, params.source);
 }
 
 /**
@@ -516,6 +572,7 @@ async function getBestsellersStore(
   params: RecommendationParams
 ): Promise<ShelfProduct[]> {
   const admin = createAdminClient();
+  const sourceFilterable = await shelfSourceColumnsAvailable();
 
   const { data: snap } = await admin
     .from("crm_abc_snapshots")
@@ -532,14 +589,14 @@ async function getBestsellersStore(
     .sort((a, b) => (b.qty_sold ?? 0) - (a.qty_sold ?? 0) || (b.revenue ?? 0) - (a.revenue ?? 0))
     .map((p) => normalizeProductName(p.name as string));
 
-  if (rankedNames.length === 0) return getNews(params);
+  if (rankedNames.length === 0) return fallbackNews(params);
 
   // Catálogo em estoque indexado por nome normalizado (loja inteira).
   const PAGE = 1000;
   const byName = new Map<string, ShelfProduct>();
   let from = 0;
   while (true) {
-    const { data, error } = await admin
+    let query = admin
       .from("shelf_products")
       .select("product_id, name, price, sale_price, image_url, image_url_2, product_url, category, tags, in_stock")
       .eq("workspace_id", params.workspaceId)
@@ -547,6 +604,8 @@ async function getBestsellersStore(
       .eq("in_stock", true)
       .order("product_id", { ascending: true })
       .range(from, from + PAGE - 1);
+    if (sourceFilterable) query = query.eq("source", params.source ?? DEFAULT_SHELF_SOURCE);
+    const { data, error } = await query;
     if (error) throw new Error(error.message);
     if (!data || data.length === 0) break;
     for (const p of data as ShelfProduct[]) {
@@ -571,7 +630,7 @@ async function getBestsellersStore(
   // Déficit (raro, snapshot de 30d costuma cobrir): completa com NOVIDADES em
   // estoque — nunca com o topo arbitrário do catálogo rotulado como bestseller.
   if (results.length < params.limit) {
-    const news = await getNews(params).catch(() => [] as ShelfProduct[]);
+    const news = await fallbackNews(params).catch(() => [] as ShelfProduct[]);
     for (const p of news) {
       if (results.length >= params.limit) break;
       if (!used.has(p.product_id)) {
@@ -581,9 +640,9 @@ async function getBestsellersStore(
     }
   }
 
-  if (results.length === 0) return getNews(params);
+  if (results.length === 0) return fallbackNews(params);
 
-  return withCatalogImages(params.workspaceId, results);
+  return withCatalogImages(params.workspaceId, results, params.source);
 }
 
 /** News: Most recent products from VNDA */
@@ -749,9 +808,10 @@ async function getPriceRange(
     tags: unknown;
     in_stock: boolean;
   }> = [];
+  const sourceFilterable = await shelfSourceColumnsAvailable();
   let from = 0;
   while (true) {
-    const { data, error } = await admin
+    let query = admin
       .from("shelf_products")
       .select(
         "product_id, name, price, sale_price, image_url, image_url_2, product_url, category, tags, in_stock"
@@ -760,6 +820,8 @@ async function getPriceRange(
       .eq("active", true)
       .eq("in_stock", true)
       .range(from, from + PAGE - 1);
+    if (sourceFilterable) query = query.eq("source", params.source ?? DEFAULT_SHELF_SOURCE);
+    const { data, error } = await query;
     if (error) throw new Error(error.message);
     if (!data || data.length === 0) break;
     all.push(...(data as typeof all));
@@ -792,7 +854,7 @@ async function getPriceRange(
     tags: p.tags,
     in_stock: p.in_stock,
   }));
-  return withCatalogImages(params.workspaceId, results);
+  return withCatalogImages(params.workspaceId, results, params.source);
 }
 
 /** LastViewed: Products viewed by consumer, most recent first */
@@ -803,13 +865,17 @@ async function getLastViewed(
 
   const admin = createAdminClient();
 
-  const { data: history } = await admin
+  let historyQuery = admin
     .from("shelf_consumer_history")
     .select("product_id")
     .eq("workspace_id", params.workspaceId)
     .eq("consumer_id", params.consumerId)
     .order("last_seen", { ascending: false })
     .limit(params.limit);
+  if (await shelfSourceColumnsAvailable()) {
+    historyQuery = historyQuery.eq("source", params.source ?? DEFAULT_SHELF_SOURCE);
+  }
+  const { data: history } = await historyQuery;
 
   if (!history || history.length === 0) return [];
 
@@ -869,21 +935,23 @@ async function getRelatedProducts(
   params: RecommendationParams
 ): Promise<ShelfProduct[]> {
   if (!params.productId) {
-    return getBestsellers(params);
+    return fallbackBestsellers(params);
   }
 
   const admin = createAdminClient();
+  const sourceFilterable = await shelfSourceColumnsAvailable();
 
   // Look up the source product in shelf_products (synced catalog)
-  const { data: sourceProduct } = await admin
+  let sourceQuery = admin
     .from("shelf_products")
     .select("product_id, name, category, tags")
     .eq("workspace_id", params.workspaceId)
-    .eq("product_id", params.productId)
-    .single();
+    .eq("product_id", params.productId);
+  if (sourceFilterable) sourceQuery = sourceQuery.eq("source", params.source ?? DEFAULT_SHELF_SOURCE);
+  const { data: sourceProduct } = await sourceQuery.single();
 
   if (!sourceProduct) {
-    return getBestsellers(params);
+    return fallbackBestsellers(params);
   }
 
   const sourceCategory = sourceProduct.category || null;
@@ -891,7 +959,7 @@ async function getRelatedProducts(
   const sourceKeywords = extractNameKeywords(sourceProduct.name);
 
   // Fetch all active candidates (broad query — scoring decides relevance)
-  const { data: candidates } = await admin
+  let candidatesQuery = admin
     .from("shelf_products")
     .select(
       "product_id, name, category, tags, price, sale_price, image_url, image_url_2, product_url, in_stock"
@@ -901,9 +969,11 @@ async function getRelatedProducts(
     .eq("in_stock", true)
     .neq("product_id", params.productId)
     .limit(200);
+  if (sourceFilterable) candidatesQuery = candidatesQuery.eq("source", params.source ?? DEFAULT_SHELF_SOURCE);
+  const { data: candidates } = await candidatesQuery;
 
   if (!candidates || candidates.length === 0) {
-    return getBestsellers(params);
+    return fallbackBestsellers(params);
   }
 
   // Score candidates by similarity
@@ -945,7 +1015,7 @@ async function getRelatedProducts(
 
   // If no relevant products found, fall back to bestsellers
   if (relevant.length === 0) {
-    return getBestsellers(params);
+    return fallbackBestsellers(params);
   }
 
   const results = relevant.slice(0, params.limit).map((p) => ({
@@ -960,5 +1030,5 @@ async function getRelatedProducts(
     tags: { vnda_tags: p.tags || [] },
     in_stock: p.in_stock,
   }));
-  return withCatalogImages(params.workspaceId, results);
+  return withCatalogImages(params.workspaceId, results, params.source);
 }

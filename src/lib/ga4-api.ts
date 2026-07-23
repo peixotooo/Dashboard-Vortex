@@ -394,6 +394,12 @@ export async function getGA4Report(args: {
   metrics: string[];
   limit?: number;
   orderBy?: { metric: string; desc: boolean };
+  /**
+   * Filtro opcional por hostname (dimensão hostName). Usado pela fonte Medusa
+   * das prateleiras (app.bulking.com.br). Sem o argumento, o comportamento é
+   * idêntico ao anterior — as chamadas VNDA não mudam.
+   */
+  hostname?: string;
 }): Promise<GA4GenericReport> {
   const client = getClient();
   const propertyId = args.propertyId || getPropertyId();
@@ -406,6 +412,15 @@ export async function getGA4Report(args: {
     ? [{ metric: { metricName: args.orderBy.metric }, desc: args.orderBy.desc }]
     : undefined;
 
+  const dimensionFilter = args.hostname
+    ? {
+        filter: {
+          fieldName: "hostName",
+          stringFilter: { matchType: "EXACT" as const, value: args.hostname },
+        },
+      }
+    : undefined;
+
   const [response] = await client.runReport({
     property: `properties/${propertyId}`,
     dimensions: args.dimensions.map((name) => ({ name })),
@@ -413,6 +428,7 @@ export async function getGA4Report(args: {
     dateRanges: [{ startDate: range.startDate, endDate: range.endDate }],
     limit: args.limit || 50,
     orderBys,
+    dimensionFilter,
   });
 
   const rows: GA4GenericRow[] = (response.rows || []).map((row) => {
