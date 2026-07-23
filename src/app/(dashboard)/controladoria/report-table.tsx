@@ -27,7 +27,16 @@ function valueClass(line: ReportLine, v: number): string {
   return "";
 }
 
-function Row({ line, depth, showPct }: { line: ReportLine; depth: number; showPct: boolean }) {
+// Linhas de RESULTADO do DRE (soma de outras linhas, com +/−): não têm
+// lançamentos diretos, então não são clicáveis para drill-down.
+const LINHAS_DERIVADAS = new Set([
+  "receita_liquida", "margem_bruta", "margem_contrib", "ebitda", "res_bruto", "res_liquido", "res_final",
+]);
+const podeDrill = (line: ReportLine) => !LINHAS_DERIVADAS.has(line.key);
+
+export type DrillHandler = (line: ReportLine, month: number) => void;
+
+function Row({ line, depth, showPct, onDrill }: { line: ReportLine; depth: number; showPct: boolean; onDrill?: DrillHandler }) {
   const [open, setOpen] = React.useState(false);
   const hasChildren = !!line.children?.length;
   const isSection = line.op === "" && line.emphasis && line.months.every((v) => Math.abs(v) < 0.005);
@@ -52,11 +61,25 @@ function Row({ line, depth, showPct }: { line: ReportLine; depth: number; showPc
           <TableCell colSpan={12 + 2 + (showPct ? 1 : 0)} className="bg-muted/60" />
         ) : (
           <>
-            {line.months.map((v, m) => (
-              <TableCell key={m} className={`text-right tabular-nums ${valueClass(line, v)}`}>
-                {fmtReport(v)}
-              </TableCell>
-            ))}
+            {line.months.map((v, m) => {
+              const canDrill = !!onDrill && podeDrill(line) && Math.abs(v) >= 0.005;
+              return (
+                <TableCell key={m} className={`text-right tabular-nums ${valueClass(line, v)}`}>
+                  {canDrill ? (
+                    <button
+                      type="button"
+                      onClick={() => onDrill!(line, m)}
+                      title="Ver lançamentos que compõem este valor"
+                      className="cursor-pointer rounded px-1 underline decoration-dotted decoration-muted-foreground/40 underline-offset-2 hover:bg-primary/10 hover:decoration-current"
+                    >
+                      {fmtReport(v)}
+                    </button>
+                  ) : (
+                    fmtReport(v)
+                  )}
+                </TableCell>
+              );
+            })}
             <TableCell className={`text-right tabular-nums font-medium ${valueClass(line, line.accum)}`}>
               {fmtReport(line.accum)}
             </TableCell>
@@ -68,7 +91,7 @@ function Row({ line, depth, showPct }: { line: ReportLine; depth: number; showPc
         )}
       </TableRow>
       {open &&
-        line.children!.map((c) => <Row key={c.key} line={c} depth={depth + 1} showPct={showPct} />)}
+        line.children!.map((c) => <Row key={c.key} line={c} depth={depth + 1} showPct={showPct} onDrill={onDrill} />)}
     </>
   );
 }
@@ -79,11 +102,12 @@ function pruneZeros(lines: ReportLine[]): ReportLine[] {
     .filter((l) => l.emphasis || Math.abs(l.accum) >= 0.005 || (l.children?.length ?? 0) > 0);
 }
 
-export function ReportTable({ lines: rawLines, showPct = true, extraTop, hideZeros = false }: {
+export function ReportTable({ lines: rawLines, showPct = true, extraTop, hideZeros = false, onDrill }: {
   lines: ReportLine[];
   showPct?: boolean;
   extraTop?: React.ReactNode;
   hideZeros?: boolean;
+  onDrill?: DrillHandler;
 }) {
   const lines = React.useMemo(() => (hideZeros ? pruneZeros(rawLines) : rawLines), [rawLines, hideZeros]);
   return (
@@ -103,7 +127,7 @@ export function ReportTable({ lines: rawLines, showPct = true, extraTop, hideZer
         <TableBody>
           {extraTop}
           {lines.map((l) => (
-            <Row key={l.key} line={l} depth={0} showPct={showPct} />
+            <Row key={l.key} line={l} depth={0} showPct={showPct} onDrill={onDrill} />
           ))}
         </TableBody>
       </Table>

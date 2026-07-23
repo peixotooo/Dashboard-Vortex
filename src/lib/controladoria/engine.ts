@@ -75,12 +75,13 @@ export const DRE_CASH_ONLY_SUBCATS = new Set([
   "Receita Venda/Revenda", // saques de marketplace — caixa, não receita nova
 ]);
 
-const PROVISION_RATES: { match: RegExp; rate: number }[] = [
+export const PROVISION_RATES: { match: RegExp; rate: number }[] = [
   { match: /^13° Salário/, rate: 1 / 12 },
   { match: /^Férias/, rate: 1 / 36 },
   { match: /^Multa Rescisória/, rate: 8 / 225 },
 ];
-const PESSOAL_CATEGORIES = ["Gasto com Pessoal - Adm", "Gasto com pessoal - Prod/Oper"];
+export const PESSOAL_CATEGORIES = ["Gasto com Pessoal - Adm", "Gasto com pessoal - Prod/Oper"];
+export const SALARIO_PREFIX = "Salário (s/ encargos)"; // base das provisões
 
 /** Aplica as regras 1 e 2 sobre o mapa mensal DRE (classification_id → 12 meses). */
 export function adjustDreMap(
