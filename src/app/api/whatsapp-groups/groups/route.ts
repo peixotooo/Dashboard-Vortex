@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getWapiConfig, listGroups, normalizeWapiGroups } from "@/lib/wapi-api";
+import {
+  HIDDEN_WAPI_GROUP_JIDS,
+  filterVisibleCachedGroups,
+  filterVisibleWapiGroups,
+} from "@/lib/whatsapp/group-visibility";
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,6 +14,15 @@ export async function GET(request: NextRequest) {
 
     const refresh = request.nextUrl.searchParams.get("refresh") === "true";
     const admin = createAdminClient();
+
+    // Remove do cache qualquer grupo explicitamente oculto. A lista da W-API
+    // pode continuar devolvendo esses JIDs, então o filtro abaixo também é
+    // aplicado em toda resposta fresca.
+    await admin
+      .from("wapi_groups")
+      .delete()
+      .eq("workspace_id", workspaceId)
+      .in("group_jid", [...HIDDEN_WAPI_GROUP_JIDS]);
 
     // If not refreshing, try to return cached groups
     if (!refresh) {
@@ -18,14 +32,15 @@ export async function GET(request: NextRequest) {
         .eq("workspace_id", workspaceId)
         .order("group_name");
 
-      if (cached && cached.length > 0) {
-        const groups = cached.map((g) => ({
+      const visibleCached = filterVisibleCachedGroups(cached || []);
+      if (visibleCached.length > 0) {
+        const groups = visibleCached.map((g) => ({
           id: g.group_jid,
           name: g.group_name,
         }));
         return NextResponse.json({
           groups,
-          synced_at: cached[0].synced_at,
+          synced_at: visibleCached[0].synced_at,
           cached: true,
         });
       }
@@ -36,12 +51,12 @@ export async function GET(request: NextRequest) {
     if (!config)
       return NextResponse.json(
         { error: "W-API not configured" },
-        { status: 400 }
+        { status: 400 },
       );
 
     const raw = await listGroups(config);
 
-    const groupList = normalizeWapiGroups(raw);
+    const groupList = filterVisibleWapiGroups(normalizeWapiGroups(raw));
 
     // Upsert into wapi_groups cache
     const now = new Date().toISOString();

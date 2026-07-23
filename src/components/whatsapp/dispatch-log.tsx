@@ -35,6 +35,10 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import {
+  WAPI_MESSAGE_TYPE_LABELS,
+  isWapiMessageType,
+} from "@/lib/whatsapp/wapi-message-types";
 
 interface Dispatch {
   id: string;
@@ -63,10 +67,18 @@ interface DispatchMessage {
 
 const STATUS_CONFIG: Record<
   string,
-  { label: string; variant: "default" | "secondary" | "destructive" | "outline"; icon: React.ElementType }
+  {
+    label: string;
+    variant: "default" | "secondary" | "destructive" | "outline";
+    icon: React.ElementType;
+  }
 > = {
   draft: { label: "Rascunho", variant: "outline", icon: FileEdit },
-  completed: { label: "Enviado", variant: "default", icon: CheckCircle2 },
+  completed: {
+    label: "Aceito pela W-API",
+    variant: "default",
+    icon: CheckCircle2,
+  },
   sending: { label: "Enviando", variant: "secondary", icon: Send },
   scheduled: { label: "Agendado", variant: "outline", icon: Clock },
   queued: { label: "Na fila", variant: "outline", icon: Clock },
@@ -81,6 +93,28 @@ const TYPE_ICONS: Record<string, React.ElementType> = {
   audio: Music,
   document: FileText,
 };
+
+const CONTENT_EDITABLE_TYPES = new Set([
+  "text",
+  "image",
+  "video",
+  "document",
+  "gif",
+  "button_actions",
+  "buttons",
+  "otp",
+  "carousel",
+  "poll",
+]);
+
+const MESSAGE_CONTENT_TYPES = new Set([
+  "text",
+  "button_actions",
+  "buttons",
+  "otp",
+  "carousel",
+  "poll",
+]);
 
 interface DispatchLogProps {
   workspaceId: string;
@@ -111,7 +145,7 @@ export function DispatchLog({ workspaceId }: DispatchLogProps) {
     try {
       const res = await fetch(
         `/api/whatsapp-groups/dispatches?page=${page}&limit=${limit}`,
-        { headers: { "x-workspace-id": workspaceId } }
+        { headers: { "x-workspace-id": workspaceId } },
       );
       if (res.ok) {
         const json = await res.json();
@@ -169,7 +203,7 @@ export function DispatchLog({ workspaceId }: DispatchLogProps) {
         {
           method: "POST",
           headers: { "x-workspace-id": workspaceId },
-        }
+        },
       );
       if (res.ok) fetchDispatches();
     } finally {
@@ -179,12 +213,7 @@ export function DispatchLog({ workspaceId }: DispatchLogProps) {
 
   const handleDelete = async (d: Dispatch) => {
     const label = d.status === "draft" ? "rascunho" : "agendamento";
-    if (
-      !confirm(
-        `Excluir este ${label}? Esta ação é irreversível.`
-      )
-    )
-      return;
+    if (!confirm(`Excluir este ${label}? Esta ação é irreversível.`)) return;
     setDeletingId(d.id);
     try {
       const res = await fetch(
@@ -192,7 +221,7 @@ export function DispatchLog({ workspaceId }: DispatchLogProps) {
         {
           method: "DELETE",
           headers: { "x-workspace-id": workspaceId },
-        }
+        },
       );
       if (res.ok) fetchDispatches();
     } finally {
@@ -208,7 +237,7 @@ export function DispatchLog({ workspaceId }: DispatchLogProps) {
       const dt = new Date(d.scheduled_at);
       const pad = (n: number) => String(n).padStart(2, "0");
       setEditDate(
-        `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`
+        `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`,
       );
       setEditTime(`${pad(dt.getHours())}:${pad(dt.getMinutes())}`);
       setEditScheduleEnabled(true);
@@ -274,7 +303,8 @@ export function DispatchLog({ workspaceId }: DispatchLogProps) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          {total} disparo{total !== 1 ? "s" : ""} registrado{total !== 1 ? "s" : ""}
+          {total} disparo{total !== 1 ? "s" : ""} registrado
+          {total !== 1 ? "s" : ""}
         </p>
         <Button
           type="button"
@@ -283,7 +313,9 @@ export function DispatchLog({ workspaceId }: DispatchLogProps) {
           onClick={fetchDispatches}
           disabled={loading}
         >
-          <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} />
+          <RefreshCw
+            className={`h-3.5 w-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`}
+          />
           Atualizar
         </Button>
       </div>
@@ -302,6 +334,9 @@ export function DispatchLog({ workspaceId }: DispatchLogProps) {
             const config = STATUS_CONFIG[d.status] || STATUS_CONFIG.queued;
             const StatusIcon = config.icon;
             const TypeIcon = TYPE_ICONS[d.message_type] || MessageSquare;
+            const typeLabel = isWapiMessageType(d.message_type)
+              ? WAPI_MESSAGE_TYPE_LABELS[d.message_type]
+              : d.message_type;
             const isExpanded = expandedId === d.id;
 
             return (
@@ -327,11 +362,10 @@ export function DispatchLog({ workspaceId }: DispatchLogProps) {
                       {d.content || d.file_name || "(sem conteudo)"}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {format(
-                        new Date(d.created_at),
-                        "dd/MM/yyyy 'as' HH:mm",
-                        { locale: ptBR }
-                      )}
+                      {typeLabel} &middot;{" "}
+                      {format(new Date(d.created_at), "dd/MM/yyyy 'as' HH:mm", {
+                        locale: ptBR,
+                      })}
                       {d.scheduled_at &&
                         (d.status === "scheduled" || d.status === "draft") && (
                           <>
@@ -340,11 +374,9 @@ export function DispatchLog({ workspaceId }: DispatchLogProps) {
                             {d.status === "draft"
                               ? "Data prevista"
                               : "Agendado para"}{" "}
-                            {format(
-                              new Date(d.scheduled_at),
-                              "dd/MM HH:mm",
-                              { locale: ptBR }
-                            )}
+                            {format(new Date(d.scheduled_at), "dd/MM HH:mm", {
+                              locale: ptBR,
+                            })}
                           </>
                         )}
                     </p>
@@ -475,18 +507,20 @@ export function DispatchLog({ workspaceId }: DispatchLogProps) {
                           </Button>
                         )}
 
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEdit(d);
-                          }}
-                        >
-                          <Pencil className="h-3.5 w-3.5 mr-1" />
-                          Editar
-                        </Button>
+                        {CONTENT_EDITABLE_TYPES.has(d.message_type) && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEdit(d);
+                            }}
+                          >
+                            <Pencil className="h-3.5 w-3.5 mr-1" />
+                            Editar
+                          </Button>
+                        )}
 
                         <Button
                           type="button"
@@ -583,19 +617,25 @@ export function DispatchLog({ workspaceId }: DispatchLogProps) {
           <div className="space-y-4 mt-2">
             <div className="space-y-2">
               <Label className="text-xs uppercase tracking-widest text-muted-foreground">
-                {editing?.message_type === "text" ? "Mensagem" : "Legenda"}
+                {editing && MESSAGE_CONTENT_TYPES.has(editing.message_type)
+                  ? editing.message_type === "poll"
+                    ? "Pergunta"
+                    : "Mensagem"
+                  : "Legenda"}
               </Label>
               <Textarea
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
                 rows={5}
                 placeholder={
-                  editing?.message_type === "text"
-                    ? "Texto da mensagem"
-                    : "Legenda (opcional)"
+                  editing?.message_type === "poll"
+                    ? "Pergunta da enquete"
+                    : editing && MESSAGE_CONTENT_TYPES.has(editing.message_type)
+                      ? "Texto da mensagem"
+                      : "Legenda (opcional)"
                 }
               />
-              {editing && editing.message_type !== "text" && (
+              {editing && !MESSAGE_CONTENT_TYPES.has(editing.message_type) && (
                 <p className="text-[11px] text-muted-foreground">
                   Edição altera só a legenda. Pra trocar mídia/tipo, exclua e
                   recrie.

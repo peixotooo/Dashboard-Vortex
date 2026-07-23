@@ -50,10 +50,23 @@ import {
 import { FormattingToolbar } from "@/components/whatsapp/formatting-toolbar";
 import { EmojiPicker } from "@/components/whatsapp/emoji-picker";
 import { SchedulePicker } from "@/components/whatsapp/schedule-picker";
-import { PresetManager, type Preset } from "@/components/whatsapp/preset-manager";
+import {
+  PresetManager,
+  type Preset,
+} from "@/components/whatsapp/preset-manager";
 import { DispatchLog } from "@/components/whatsapp/dispatch-log";
 import { GroupMembersDashboard } from "@/components/whatsapp/group-members-dashboard";
+import { RichMessageFields } from "@/components/whatsapp/rich-message-fields";
 import { GalleryPicker, type MediaItem } from "@/components/gallery-picker";
+import {
+  WAPI_MESSAGE_TYPES,
+  WAPI_MESSAGE_TYPE_LABELS,
+  getDefaultWapiMessagePayload,
+  isWapiMessageType,
+  normalizeWapiMessagePayload,
+  type WapiMessagePayload,
+  type WapiMessageType,
+} from "@/lib/whatsapp/wapi-message-types";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -160,8 +173,12 @@ export default function WhatsAppGroupsPage() {
   const [pools, setPools] = useState<GroupPool[]>([]);
   const [poolsLoading, setPoolsLoading] = useState(false);
   const [poolSaving, setPoolSaving] = useState(false);
-  const [poolInviteRefreshing, setPoolInviteRefreshing] = useState<string | null>(null);
-  const [groupInviteRefreshing, setGroupInviteRefreshing] = useState<string | null>(null);
+  const [poolInviteRefreshing, setPoolInviteRefreshing] = useState<
+    string | null
+  >(null);
+  const [groupInviteRefreshing, setGroupInviteRefreshing] = useState<
+    string | null
+  >(null);
   const [poolDraft, setPoolDraft] = useState({
     name: "BULKING VIP",
     slug: "vip",
@@ -174,12 +191,14 @@ export default function WhatsAppGroupsPage() {
   const [presets, setPresets] = useState<Preset[]>([]);
 
   // Send state
-  const [messageType, setMessageType] = useState<string>("text");
+  const [messageType, setMessageType] = useState<WapiMessageType>("text");
   const [messageText, setMessageText] = useState("");
   const [caption, setCaption] = useState("");
   const [mediaUrl, setMediaUrl] = useState("");
   const [fileName, setFileName] = useState("");
   const [fileExtension, setFileExtension] = useState("pdf");
+  const [richPayload, setRichPayload] = useState<WapiMessagePayload>({});
+  const [replyMessageId, setReplyMessageId] = useState("");
   const [delayMessage, setDelayMessage] = useState(1);
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<SendResult | null>(null);
@@ -244,7 +263,7 @@ export default function WhatsAppGroupsPage() {
       }
     } catch (err) {
       setErrorMsg(
-        `Erro ao verificar status: ${err instanceof Error ? err.message : "desconhecido"}`
+        `Erro ao verificar status: ${err instanceof Error ? err.message : "desconhecido"}`,
       );
     }
     setStatusLoading(false);
@@ -267,7 +286,7 @@ export default function WhatsAppGroupsPage() {
       }
     } catch (err) {
       setErrorMsg(
-        `Erro ao gerar QR Code: ${err instanceof Error ? err.message : "desconhecido"}`
+        `Erro ao gerar QR Code: ${err instanceof Error ? err.message : "desconhecido"}`,
       );
     }
     setQrLoading(false);
@@ -293,12 +312,12 @@ export default function WhatsAppGroupsPage() {
         }
       } catch (err) {
         setErrorMsg(
-          `Erro ao carregar grupos: ${err instanceof Error ? err.message : "desconhecido"}`
+          `Erro ao carregar grupos: ${err instanceof Error ? err.message : "desconhecido"}`,
         );
       }
       setGroupsLoading(false);
     },
-    [workspace?.id, configured, wsHeaders]
+    [workspace?.id, configured, wsHeaders],
   );
 
   const fetchPresets = useCallback(async () => {
@@ -331,7 +350,7 @@ export default function WhatsAppGroupsPage() {
       }
     } catch (err) {
       setErrorMsg(
-        `Erro ao carregar gestao de grupos: ${err instanceof Error ? err.message : "desconhecido"}`
+        `Erro ao carregar gestao de grupos: ${err instanceof Error ? err.message : "desconhecido"}`,
       );
     } finally {
       setPoolsLoading(false);
@@ -346,7 +365,15 @@ export default function WhatsAppGroupsPage() {
     const tab = new URLSearchParams(window.location.search).get("tab");
     if (
       tab &&
-      ["connection", "groups", "growth", "management", "send", "history", "config"].includes(tab)
+      [
+        "connection",
+        "groups",
+        "growth",
+        "management",
+        "send",
+        "history",
+        "config",
+      ].includes(tab)
     ) {
       setActiveTab(tab);
     }
@@ -386,7 +413,7 @@ export default function WhatsAppGroupsPage() {
       }
     } catch (err) {
       setErrorMsg(
-        `Erro de rede: ${err instanceof Error ? err.message : "desconhecido"}`
+        `Erro de rede: ${err instanceof Error ? err.message : "desconhecido"}`,
       );
     }
     setSavingConfig(false);
@@ -400,7 +427,11 @@ export default function WhatsAppGroupsPage() {
     } else {
       url.searchParams.set("tab", tab);
     }
-    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    window.history.replaceState(
+      null,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
   }
 
   async function handleCreatePool() {
@@ -422,7 +453,7 @@ export default function WhatsAppGroupsPage() {
       }
     } catch (err) {
       setErrorMsg(
-        `Erro ao criar pool: ${err instanceof Error ? err.message : "desconhecido"}`
+        `Erro ao criar pool: ${err instanceof Error ? err.message : "desconhecido"}`,
       );
     } finally {
       setPoolSaving(false);
@@ -432,7 +463,7 @@ export default function WhatsAppGroupsPage() {
   async function handleSavePool(
     pool: GroupPool,
     sync = false,
-    options: { quiet?: boolean } = {}
+    options: { quiet?: boolean } = {},
   ): Promise<boolean> {
     setPoolSaving(true);
     if (!options.quiet) {
@@ -476,14 +507,14 @@ export default function WhatsAppGroupsPage() {
               ? `Pool sincronizado: ${syncedCount} grupo(s) lidos da W-API.`
               : sync
                 ? "Pool sincronizado."
-                : "Pool salvo."
+                : "Pool salvo.",
           );
         }
         return true;
       }
     } catch (err) {
       setErrorMsg(
-        `Erro ao salvar pool: ${err instanceof Error ? err.message : "desconhecido"}`
+        `Erro ao salvar pool: ${err instanceof Error ? err.message : "desconhecido"}`,
       );
       return false;
     } finally {
@@ -494,7 +525,7 @@ export default function WhatsAppGroupsPage() {
   async function handleRefreshPoolInvites(
     pool: GroupPool,
     force = false,
-    groupJid: string | null = null
+    groupJid: string | null = null,
   ) {
     const missingCount = pool.stats.missingInviteLinks;
     let message =
@@ -520,11 +551,14 @@ export default function WhatsAppGroupsPage() {
     if (groupJid) setGroupInviteRefreshing(groupJid);
     else setPoolInviteRefreshing(pool.id);
     try {
-      const res = await fetch(`/api/whatsapp-groups/pools/${pool.id}/invite-links`, {
-        method: "POST",
-        headers: wsHeaders(),
-        body: JSON.stringify({ force, groupJid }),
-      });
+      const res = await fetch(
+        `/api/whatsapp-groups/pools/${pool.id}/invite-links`,
+        {
+          method: "POST",
+          headers: wsHeaders(),
+          body: JSON.stringify({ force, groupJid }),
+        },
+      );
       const data = await res.json();
       if (data.error) {
         setErrorMsg(`Erro ao gerar links: ${data.error}`);
@@ -538,17 +572,19 @@ export default function WhatsAppGroupsPage() {
       const queued = Number(summary.queued || 0);
       const retrying = Number(summary.retrying || 0);
       const remaining = Number(summary.remaining || 0);
-      let message =
-        `Fila criada: ${queued} grupo(s) enfileirado(s), ${updated} link(s) gerado(s) agora e ${remaining} pendente(s).`;
+      let message = `Fila criada: ${queued} grupo(s) enfileirado(s), ${updated} link(s) gerado(s) agora e ${remaining} pendente(s).`;
       if (failures > 0) {
         message = `Fila processada: ${updated} link(s) gerado(s), ${retrying} em retry e ${failures} falha(s).`;
       } else if (groupJid) {
-        message = updated > 0 ? "Link gerado para este grupo." : "Grupo colocado na fila de geracao.";
+        message =
+          updated > 0
+            ? "Link gerado para este grupo."
+            : "Grupo colocado na fila de geracao.";
       }
       setSuccessMsg(message);
     } catch (err) {
       setErrorMsg(
-        `Erro ao gerar links: ${err instanceof Error ? err.message : "desconhecido"}`
+        `Erro ao gerar links: ${err instanceof Error ? err.message : "desconhecido"}`,
       );
     } finally {
       if (groupJid) setGroupInviteRefreshing(null);
@@ -558,14 +594,14 @@ export default function WhatsAppGroupsPage() {
 
   function updatePool(poolId: string, patch: Partial<GroupPool>) {
     setPools((prev) =>
-      prev.map((pool) => (pool.id === poolId ? { ...pool, ...patch } : pool))
+      prev.map((pool) => (pool.id === poolId ? { ...pool, ...patch } : pool)),
     );
   }
 
   function updatePoolGroup(
     poolId: string,
     groupId: string,
-    patch: Partial<PoolGroup>
+    patch: Partial<PoolGroup>,
   ) {
     setPools((prev) =>
       prev.map((pool) =>
@@ -573,11 +609,11 @@ export default function WhatsAppGroupsPage() {
           ? {
               ...pool,
               groups: pool.groups.map((group) =>
-                group.id === groupId ? { ...group, ...patch } : group
+                group.id === groupId ? { ...group, ...patch } : group,
               ),
             }
-          : pool
-      )
+          : pool,
+      ),
     );
   }
 
@@ -605,7 +641,8 @@ export default function WhatsAppGroupsPage() {
         setErrorMsg(`Erro ao reiniciar: ${data.error}`);
       } else {
         setSuccessMsg(
-          data.message || "Instancia reiniciada. Aguarde alguns segundos e clique em 'Verificar Status'."
+          data.message ||
+            "Instancia reiniciada. Aguarde alguns segundos e clique em 'Verificar Status'.",
         );
         // Wait a beat, then resync status + groups so the UI reflects post-restart state.
         setTimeout(() => {
@@ -615,7 +652,7 @@ export default function WhatsAppGroupsPage() {
       }
     } catch (err) {
       setErrorMsg(
-        `Erro ao reiniciar: ${err instanceof Error ? err.message : "desconhecido"}`
+        `Erro ao reiniciar: ${err instanceof Error ? err.message : "desconhecido"}`,
       );
     }
     setRestarting(false);
@@ -624,7 +661,7 @@ export default function WhatsAppGroupsPage() {
   async function handleDisconnect() {
     if (!workspace?.id) return;
     const ok = window.confirm(
-      "Desconectar essa instancia? Voce vai precisar escanear o QR Code de novo para reconectar."
+      "Desconectar essa instancia? Voce vai precisar escanear o QR Code de novo para reconectar.",
     );
     if (!ok) return;
     setDisconnecting(true);
@@ -642,12 +679,12 @@ export default function WhatsAppGroupsPage() {
         setConnected(false);
         setQrCode(null);
         setSuccessMsg(
-          "Instancia desconectada. Clique em 'Gerar QR Code' para reconectar."
+          "Instancia desconectada. Clique em 'Gerar QR Code' para reconectar.",
         );
       }
     } catch (err) {
       setErrorMsg(
-        `Erro ao desconectar: ${err instanceof Error ? err.message : "desconhecido"}`
+        `Erro ao desconectar: ${err instanceof Error ? err.message : "desconhecido"}`,
       );
     }
     setDisconnecting(false);
@@ -670,6 +707,7 @@ export default function WhatsAppGroupsPage() {
         body: JSON.stringify({
           groups: selectedGroupData,
           messageType,
+          payload: buildMessagePayload(),
           message: messageText || undefined,
           caption: caption || undefined,
           mediaUrl: mediaUrl || undefined,
@@ -688,10 +726,36 @@ export default function WhatsAppGroupsPage() {
       }
     } catch (err) {
       setErrorMsg(
-        `Erro ao enviar: ${err instanceof Error ? err.message : "desconhecido"}`
+        `Erro ao enviar: ${err instanceof Error ? err.message : "desconhecido"}`,
       );
     }
     setSending(false);
+  }
+
+  function buildMessagePayload(): WapiMessagePayload {
+    const reply = replyMessageId.trim()
+      ? { messageId: replyMessageId.trim() }
+      : {};
+    switch (messageType) {
+      case "text":
+        return { message: messageText, ...reply };
+      case "image":
+        return { image: mediaUrl, caption, ...reply };
+      case "video":
+        return { video: mediaUrl, caption, ...reply };
+      case "audio":
+        return { audio: mediaUrl, ...reply };
+      case "document":
+        return {
+          document: mediaUrl,
+          extension: fileExtension,
+          fileName,
+          caption,
+          ...reply,
+        };
+      default:
+        return { ...richPayload, ...reply };
+    }
   }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -721,7 +785,8 @@ export default function WhatsAppGroupsPage() {
         const xhr = new XMLHttpRequest();
         xhr.open("PUT", signedUrl);
         xhr.setRequestHeader("Content-Type", file.type);
-        xhr.onload = () => (xhr.status < 400 ? resolve() : reject(new Error("Upload failed")));
+        xhr.onload = () =>
+          xhr.status < 400 ? resolve() : reject(new Error("Upload failed"));
         xhr.onerror = () => reject(new Error("Upload failed"));
         xhr.send(file);
       });
@@ -747,7 +812,7 @@ export default function WhatsAppGroupsPage() {
       setMediaPreview(regData.imageUrl || publicUrl);
     } catch (err) {
       setErrorMsg(
-        `Erro no upload: ${err instanceof Error ? err.message : "desconhecido"}`
+        `Erro no upload: ${err instanceof Error ? err.message : "desconhecido"}`,
       );
     }
     setUploading(false);
@@ -814,13 +879,22 @@ export default function WhatsAppGroupsPage() {
     (g) =>
       !groupSearch ||
       g.name?.toLowerCase().includes(groupSearch.toLowerCase()) ||
-      g.id.toLowerCase().includes(groupSearch.toLowerCase())
+      g.id.toLowerCase().includes(groupSearch.toLowerCase()),
   );
 
-  const canSend =
-    selectedGroups.size > 0 &&
-    ((messageType === "text" && messageText.trim().length > 0) ||
-      (messageType !== "text" && mediaUrl.trim().length > 0));
+  let payloadIsValid = false;
+  let payloadValidationError: string | null = null;
+  try {
+    normalizeWapiMessagePayload(messageType, buildMessagePayload());
+    payloadIsValid = true;
+  } catch (error) {
+    payloadIsValid = false;
+    payloadValidationError =
+      error instanceof Error
+        ? error.message
+        : "Preencha os campos obrigatórios.";
+  }
+  const canSend = selectedGroups.size > 0 && payloadIsValid;
 
   const isScheduled = scheduledAt !== null;
 
@@ -946,9 +1020,7 @@ export default function WhatsAppGroupsPage() {
                     ) : (
                       <AlertCircle className="h-4 w-4" />
                     )}
-                    {connected
-                      ? "WhatsApp conectado"
-                      : "WhatsApp desconectado"}
+                    {connected ? "WhatsApp conectado" : "WhatsApp desconectado"}
                     <span className="text-muted-foreground ml-2">
                       | Instance: {configInstanceId}
                     </span>
@@ -1148,7 +1220,7 @@ export default function WhatsAppGroupsPage() {
                           checked={
                             filteredGroups.length > 0 &&
                             filteredGroups.every((g) =>
-                              selectedGroups.has(g.id)
+                              selectedGroups.has(g.id),
                             )
                           }
                           onChange={toggleAllGroups}
@@ -1211,7 +1283,10 @@ export default function WhatsAppGroupsPage() {
                     <Input
                       value={poolDraft.name}
                       onChange={(e) =>
-                        setPoolDraft((prev) => ({ ...prev, name: e.target.value }))
+                        setPoolDraft((prev) => ({
+                          ...prev,
+                          name: e.target.value,
+                        }))
                       }
                     />
                   </div>
@@ -1220,7 +1295,10 @@ export default function WhatsAppGroupsPage() {
                     <Input
                       value={poolDraft.slug}
                       onChange={(e) =>
-                        setPoolDraft((prev) => ({ ...prev, slug: e.target.value }))
+                        setPoolDraft((prev) => ({
+                          ...prev,
+                          slug: e.target.value,
+                        }))
                       }
                     />
                   </div>
@@ -1262,7 +1340,11 @@ export default function WhatsAppGroupsPage() {
                       }
                     />
                   </div>
-                  <Button onClick={handleCreatePool} disabled={poolSaving} className="gap-1.5">
+                  <Button
+                    onClick={handleCreatePool}
+                    disabled={poolSaving}
+                    className="gap-1.5"
+                  >
                     {poolSaving ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
@@ -1300,10 +1382,14 @@ export default function WhatsAppGroupsPage() {
                           {pool.name}
                         </CardTitle>
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                          <Badge variant={pool.active ? "default" : "secondary"}>
+                          <Badge
+                            variant={pool.active ? "default" : "secondary"}
+                          >
                             {pool.active ? "Ativo" : "Pausado"}
                           </Badge>
-                          <Badge variant="outline">{pool.stats.totalGroups} grupos</Badge>
+                          <Badge variant="outline">
+                            {pool.stats.totalGroups} grupos
+                          </Badge>
                           <Badge variant="outline">
                             {pool.stats.routeableGroups} com link
                           </Badge>
@@ -1320,7 +1406,9 @@ export default function WhatsAppGroupsPage() {
                           <Badge variant="outline">
                             {pool.stats.totalMembers} membros
                           </Badge>
-                          <span className="font-mono text-xs">{pool.publicUrl}</span>
+                          <span className="font-mono text-xs">
+                            {pool.publicUrl}
+                          </span>
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -1333,8 +1421,17 @@ export default function WhatsAppGroupsPage() {
                           <Copy className="h-3.5 w-3.5" />
                           Copiar link
                         </Button>
-                        <Button size="sm" variant="outline" asChild className="gap-1.5">
-                          <a href={pool.publicUrl} target="_blank" rel="noreferrer">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          asChild
+                          className="gap-1.5"
+                        >
+                          <a
+                            href={pool.publicUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
                             <ExternalLink className="h-3.5 w-3.5" />
                             Abrir
                           </a>
@@ -1343,7 +1440,9 @@ export default function WhatsAppGroupsPage() {
                           size="sm"
                           variant="outline"
                           onClick={() => handleSavePool(pool, true)}
-                          disabled={poolSaving || poolInviteRefreshing === pool.id}
+                          disabled={
+                            poolSaving || poolInviteRefreshing === pool.id
+                          }
                           className="gap-1.5"
                         >
                           <RefreshCw className="h-3.5 w-3.5" />
@@ -1370,7 +1469,9 @@ export default function WhatsAppGroupsPage() {
                         <Button
                           size="sm"
                           onClick={() => handleSavePool(pool)}
-                          disabled={poolSaving || poolInviteRefreshing === pool.id}
+                          disabled={
+                            poolSaving || poolInviteRefreshing === pool.id
+                          }
                           className="gap-1.5"
                         >
                           {poolSaving ? (
@@ -1387,8 +1488,8 @@ export default function WhatsAppGroupsPage() {
                       <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                         <span>
-                          Todos os grupos com link estao perto do limite. Crie mais grupos
-                          seguindo o padrao e clique em sincronizar.
+                          Todos os grupos com link estao perto do limite. Crie
+                          mais grupos seguindo o padrao e clique em sincronizar.
                         </span>
                       </div>
                     )}
@@ -1398,16 +1499,19 @@ export default function WhatsAppGroupsPage() {
                         <div className="flex items-start gap-2">
                           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                           <span>
-                            {pool.stats.missingInviteLinks} grupo(s) ativo(s) sem link de convite.
-                            Use a W-API para colocar esses grupos em fila; o worker gera em
-                            lotes pequenos para evitar limite de requisicao.
+                            {pool.stats.missingInviteLinks} grupo(s) ativo(s)
+                            sem link de convite. Use a W-API para colocar esses
+                            grupos em fila; o worker gera em lotes pequenos para
+                            evitar limite de requisicao.
                           </span>
                         </div>
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => handleRefreshPoolInvites(pool)}
-                          disabled={poolSaving || poolInviteRefreshing === pool.id}
+                          disabled={
+                            poolSaving || poolInviteRefreshing === pool.id
+                          }
                           className="shrink-0 gap-1.5"
                         >
                           {poolInviteRefreshing === pool.id ? (
@@ -1420,15 +1524,16 @@ export default function WhatsAppGroupsPage() {
                       </div>
                     )}
 
-                    {pool.stats.missingInviteLinks === 0 && pool.stats.routeableGroups > 0 && (
-                      <div className="flex items-start gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-sm text-emerald-700 dark:text-emerald-300">
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                        <span>
-                          Link unico pronto: todos os grupos ativos possuem convite e
-                          entram no rodizio conforme ocupacao.
-                        </span>
-                      </div>
-                    )}
+                    {pool.stats.missingInviteLinks === 0 &&
+                      pool.stats.routeableGroups > 0 && (
+                        <div className="flex items-start gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-sm text-emerald-700 dark:text-emerald-300">
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                          <span>
+                            Link unico pronto: todos os grupos ativos possuem
+                            convite e entram no rodizio conforme ocupacao.
+                          </span>
+                        </div>
+                      )}
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="grid gap-3 md:grid-cols-[1fr_0.7fr_0.8fr_0.6fr_0.6fr_0.6fr]">
@@ -1436,14 +1541,18 @@ export default function WhatsAppGroupsPage() {
                         <Label>Nome</Label>
                         <Input
                           value={pool.name}
-                          onChange={(e) => updatePool(pool.id, { name: e.target.value })}
+                          onChange={(e) =>
+                            updatePool(pool.id, { name: e.target.value })
+                          }
                         />
                       </div>
                       <div>
                         <Label>Slug</Label>
                         <Input
                           value={pool.slug}
-                          onChange={(e) => updatePool(pool.id, { slug: e.target.value })}
+                          onChange={(e) =>
+                            updatePool(pool.id, { slug: e.target.value })
+                          }
                         />
                       </div>
                       <div>
@@ -1451,7 +1560,9 @@ export default function WhatsAppGroupsPage() {
                         <Input
                           value={pool.matchPattern || ""}
                           onChange={(e) =>
-                            updatePool(pool.id, { matchPattern: e.target.value })
+                            updatePool(pool.id, {
+                              matchPattern: e.target.value,
+                            })
                           }
                         />
                       </div>
@@ -1461,7 +1572,9 @@ export default function WhatsAppGroupsPage() {
                           type="number"
                           value={pool.capacity}
                           onChange={(e) =>
-                            updatePool(pool.id, { capacity: Number(e.target.value) })
+                            updatePool(pool.id, {
+                              capacity: Number(e.target.value),
+                            })
                           }
                         />
                       </div>
@@ -1500,17 +1613,32 @@ export default function WhatsAppGroupsPage() {
                       <table className="w-full text-sm">
                         <thead className="bg-muted/50">
                           <tr>
-                            <th className="px-3 py-2 text-left font-medium">Grupo</th>
-                            <th className="px-3 py-2 text-left font-medium">Membros</th>
-                            <th className="px-3 py-2 text-left font-medium">Status</th>
-                            <th className="px-3 py-2 text-left font-medium">Link de convite</th>
+                            <th className="px-3 py-2 text-left font-medium">
+                              Grupo
+                            </th>
+                            <th className="px-3 py-2 text-left font-medium">
+                              Membros
+                            </th>
+                            <th className="px-3 py-2 text-left font-medium">
+                              Status
+                            </th>
+                            <th className="px-3 py-2 text-left font-medium">
+                              Link de convite
+                            </th>
                           </tr>
                         </thead>
                         <tbody className="divide-y">
                           {pool.groups.map((group) => (
-                            <tr key={group.id} className={group.isNearFull ? "bg-amber-500/5" : ""}>
+                            <tr
+                              key={group.id}
+                              className={
+                                group.isNearFull ? "bg-amber-500/5" : ""
+                              }
+                            >
                               <td className="px-3 py-3 align-top">
-                                <div className="font-medium">{group.groupName}</div>
+                                <div className="font-medium">
+                                  {group.groupName}
+                                </div>
                                 <div className="text-xs font-mono text-muted-foreground">
                                   {group.groupJid}
                                 </div>
@@ -1526,11 +1654,14 @@ export default function WhatsAppGroupsPage() {
                                             ? "bg-amber-500"
                                             : "bg-emerald-500"
                                       }`}
-                                      style={{ width: `${group.fillPct ?? 0}%` }}
+                                      style={{
+                                        width: `${group.fillPct ?? 0}%`,
+                                      }}
                                     />
                                   </div>
                                   <span className="w-16 text-right text-xs text-muted-foreground">
-                                    {group.memberCount ?? "-"} / {group.capacity}
+                                    {group.memberCount ?? "-"} /{" "}
+                                    {group.capacity}
                                   </span>
                                 </div>
                                 <div className="mt-1 text-xs text-muted-foreground">
@@ -1550,10 +1681,16 @@ export default function WhatsAppGroupsPage() {
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="active">Ativo</SelectItem>
-                                    <SelectItem value="paused">Pausado</SelectItem>
+                                    <SelectItem value="active">
+                                      Ativo
+                                    </SelectItem>
+                                    <SelectItem value="paused">
+                                      Pausado
+                                    </SelectItem>
                                     <SelectItem value="full">Cheio</SelectItem>
-                                    <SelectItem value="archived">Arquivado</SelectItem>
+                                    <SelectItem value="archived">
+                                      Arquivado
+                                    </SelectItem>
                                   </SelectContent>
                                 </Select>
                               </td>
@@ -1573,9 +1710,11 @@ export default function WhatsAppGroupsPage() {
                                       <div className="text-xs text-muted-foreground">
                                         {group.inviteJob.status === "failed"
                                           ? `Falhou: ${group.inviteJob.lastError || "sem detalhe"}`
-                                          : group.inviteJob.status === "retrying"
+                                          : group.inviteJob.status ===
+                                              "retrying"
                                             ? `Em retry (${group.inviteJob.attempts})`
-                                            : group.inviteJob.status === "processing"
+                                            : group.inviteJob.status ===
+                                                "processing"
                                               ? "Gerando agora..."
                                               : "Na fila"}
                                       </div>
@@ -1586,7 +1725,11 @@ export default function WhatsAppGroupsPage() {
                                       size="sm"
                                       variant="outline"
                                       onClick={() =>
-                                        handleRefreshPoolInvites(pool, false, group.groupJid)
+                                        handleRefreshPoolInvites(
+                                          pool,
+                                          false,
+                                          group.groupJid,
+                                        )
                                       }
                                       disabled={
                                         poolSaving ||
@@ -1595,7 +1738,8 @@ export default function WhatsAppGroupsPage() {
                                       }
                                       className="shrink-0 gap-1.5"
                                     >
-                                      {groupInviteRefreshing === group.groupJid ? (
+                                      {groupInviteRefreshing ===
+                                      group.groupJid ? (
                                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                       ) : (
                                         <Link2 className="h-3.5 w-3.5" />
@@ -1690,40 +1834,26 @@ export default function WhatsAppGroupsPage() {
                 <CardContent className="space-y-4">
                   <div>
                     <Label>Tipo de mensagem</Label>
-                    <Select value={messageType} onValueChange={(v) => {
-                      setMessageType(v);
-                      setMediaUrl("");
-                      setMediaPreview(null);
-                    }}>
+                    <Select
+                      value={messageType}
+                      onValueChange={(v) => {
+                        if (!isWapiMessageType(v)) return;
+                        setMessageType(v);
+                        setMediaUrl("");
+                        setMediaPreview(null);
+                        setRichPayload(getDefaultWapiMessagePayload(v));
+                        setReplyMessageId("");
+                      }}
+                    >
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="text">
-                          <span className="flex items-center gap-2">
-                            <MessageSquare className="h-3.5 w-3.5" /> Texto
-                          </span>
-                        </SelectItem>
-                        <SelectItem value="image">
-                          <span className="flex items-center gap-2">
-                            <ImageIcon className="h-3.5 w-3.5" /> Imagem
-                          </span>
-                        </SelectItem>
-                        <SelectItem value="video">
-                          <span className="flex items-center gap-2">
-                            <Video className="h-3.5 w-3.5" /> Video
-                          </span>
-                        </SelectItem>
-                        <SelectItem value="audio">
-                          <span className="flex items-center gap-2">
-                            <Music className="h-3.5 w-3.5" /> Audio
-                          </span>
-                        </SelectItem>
-                        <SelectItem value="document">
-                          <span className="flex items-center gap-2">
-                            <FileText className="h-3.5 w-3.5" /> Documento
-                          </span>
-                        </SelectItem>
+                        {WAPI_MESSAGE_TYPES.map((type) => (
+                          <SelectItem key={type} value={type}>
+                            {WAPI_MESSAGE_TYPE_LABELS[type]}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1920,6 +2050,47 @@ export default function WhatsAppGroupsPage() {
                     </>
                   )}
 
+                  {!["text", "image", "video", "audio", "document"].includes(
+                    messageType,
+                  ) && (
+                    <RichMessageFields
+                      messageType={messageType}
+                      value={richPayload}
+                      onChange={setRichPayload}
+                    />
+                  )}
+
+                  {[
+                    "text",
+                    "image",
+                    "video",
+                    "audio",
+                    "document",
+                    "sticker",
+                    "gif",
+                    "ptv",
+                    "location",
+                    "contact",
+                    "contacts",
+                  ].includes(messageType) && (
+                    <div>
+                      <Label>ID da mensagem a responder (opcional)</Label>
+                      <Input
+                        value={replyMessageId}
+                        onChange={(event) =>
+                          setReplyMessageId(event.target.value)
+                        }
+                        placeholder="Deixe vazio para iniciar uma nova mensagem"
+                      />
+                    </div>
+                  )}
+
+                  {payloadValidationError && (
+                    <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                      {payloadValidationError}
+                    </div>
+                  )}
+
                   {/* Delay */}
                   <div>
                     <Label>Delay entre mensagens (segundos)</Label>
@@ -2004,8 +2175,8 @@ export default function WhatsAppGroupsPage() {
                         ? `Salvar rascunho (${selectedGroups.size} grupo(s))`
                         : `Salvar rascunho (${selectedGroups.size} grupo(s))`
                       : isScheduled
-                      ? `Agendar envio para ${selectedGroups.size} grupo(s)`
-                      : `Enviar agora para ${selectedGroups.size} grupo(s)`}
+                        ? `Agendar envio para ${selectedGroups.size} grupo(s)`
+                        : `Enviar agora para ${selectedGroups.size} grupo(s)`}
                   </Button>
                 </CardContent>
               </Card>
@@ -2017,10 +2188,12 @@ export default function WhatsAppGroupsPage() {
                     sendResult.status === "draft"
                       ? "border-muted-foreground/30"
                       : sendResult.status === "scheduled"
-                      ? "border-blue-500/30"
-                      : sendResult.failed === 0
-                        ? "border-emerald-500/30"
-                        : "border-amber-500/30"
+                        ? "border-blue-500/30"
+                        : sendResult.status === "queued"
+                          ? "border-amber-500/30"
+                        : sendResult.failed === 0
+                          ? "border-emerald-500/30"
+                          : "border-amber-500/30"
                   }
                 >
                   <CardHeader>
@@ -2029,6 +2202,8 @@ export default function WhatsAppGroupsPage() {
                         <FileEdit className="h-5 w-5 text-muted-foreground" />
                       ) : sendResult.status === "scheduled" ? (
                         <Clock className="h-5 w-5 text-blue-500" />
+                      ) : sendResult.status === "queued" ? (
+                        <Clock className="h-5 w-5 text-amber-500" />
                       ) : sendResult.failed === 0 ? (
                         <CheckCircle2 className="h-5 w-5 text-emerald-500" />
                       ) : (
@@ -2037,8 +2212,10 @@ export default function WhatsAppGroupsPage() {
                       {sendResult.status === "draft"
                         ? "Rascunho salvo"
                         : sendResult.status === "scheduled"
-                        ? "Envio Agendado"
-                        : "Resultado do Envio"}
+                          ? "Envio Agendado"
+                          : sendResult.status === "queued"
+                            ? "Mensagem na fila"
+                          : "Resultado do Envio"}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
@@ -2048,12 +2225,13 @@ export default function WhatsAppGroupsPage() {
                           Rascunho salvo para {sendResult.total} grupo(s).
                           {sendResult.scheduled_at && (
                             <>
-                              {" "}Data prevista:{" "}
+                              {" "}
+                              Data prevista:{" "}
                               <strong>
                                 {format(
                                   new Date(sendResult.scheduled_at),
                                   "dd/MM/yyyy 'as' HH:mm",
-                                  { locale: ptBR }
+                                  { locale: ptBR },
                                 )}
                               </strong>
                               .
@@ -2074,13 +2252,25 @@ export default function WhatsAppGroupsPage() {
                               format(
                                 new Date(sendResult.scheduled_at),
                                 "dd/MM/yyyy 'as' HH:mm",
-                                { locale: ptBR }
+                                { locale: ptBR },
                               )}
                           </strong>
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
                           Sera enviada para {sendResult.total} grupo(s). Veja o
                           status na aba Historico.
+                        </p>
+                      </div>
+                    ) : sendResult.status === "queued" ? (
+                      <div className="text-sm">
+                        <p>
+                          Mensagem enfileirada para {sendResult.total} grupo(s).
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          O worker ainda vai processar o envio. A confirmacao
+                          real aparece na aba <strong>Historico</strong>; este
+                          aviso nao significa que a mensagem ja chegou ao
+                          WhatsApp.
                         </p>
                       </div>
                     ) : (
@@ -2185,8 +2375,7 @@ export default function WhatsAppGroupsPage() {
                   placeholder="Ex: T34398-VYR3QD-MS29SL"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Encontre o Instance ID no painel da W-API em
-                  painel.w-api.app
+                  Encontre o Instance ID no painel da W-API em painel.w-api.app
                 </p>
               </div>
 
@@ -2203,8 +2392,8 @@ export default function WhatsAppGroupsPage() {
                   rows={3}
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  O token sera armazenado criptografado. Encontre-o no painel
-                  da W-API junto ao Instance ID.
+                  O token sera armazenado criptografado. Encontre-o no painel da
+                  W-API junto ao Instance ID.
                 </p>
               </div>
 

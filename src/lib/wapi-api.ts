@@ -1,5 +1,12 @@
 import { createAdminClient } from "@/lib/supabase-admin";
 import { encrypt, decrypt } from "@/lib/encryption";
+import type {
+  WapiMessagePayload,
+  WapiMessageType,
+} from "@/lib/whatsapp/wapi-message-types";
+import { toWapiWirePayload } from "@/lib/whatsapp/wapi-message-types";
+
+export type { WapiMessageType } from "@/lib/whatsapp/wapi-message-types";
 
 // --- Types ---
 
@@ -35,17 +42,10 @@ export interface WapiSendResult {
   error?: string;
 }
 
-export type WapiMessageType =
-  | "text"
-  | "image"
-  | "video"
-  | "audio"
-  | "document";
-
 // --- Config CRUD ---
 
 export async function getWapiConfig(
-  workspaceId: string
+  workspaceId: string,
 ): Promise<WapiConfig | null> {
   const admin = createAdminClient();
   const { data } = await admin
@@ -65,7 +65,7 @@ export async function getWapiConfig(
 
 export async function saveWapiConfig(
   workspaceId: string,
-  config: { instanceId: string; token: string }
+  config: { instanceId: string; token: string },
 ): Promise<void> {
   const admin = createAdminClient();
   const { error } = await admin.from("wapi_config").upsert(
@@ -76,7 +76,7 @@ export async function saveWapiConfig(
       connected: false,
       updated_at: new Date().toISOString(),
     },
-    { onConflict: "workspace_id" }
+    { onConflict: "workspace_id" },
   );
 
   if (error) throw new Error(`Failed to save W-API config: ${error.message}`);
@@ -84,7 +84,7 @@ export async function saveWapiConfig(
 
 export async function updateWapiConnected(
   workspaceId: string,
-  connected: boolean
+  connected: boolean,
 ): Promise<void> {
   const admin = createAdminClient();
   await admin
@@ -102,7 +102,7 @@ async function wapiRequest<T>(
     method?: string;
     body?: Record<string, unknown>;
     extraParams?: Record<string, string>;
-  }
+  },
 ): Promise<T> {
   const params = new URLSearchParams({ instanceId: config.instanceId });
   if (options?.extraParams) {
@@ -133,13 +133,13 @@ async function wapiRequest<T>(
 // --- Endpoint wrappers ---
 
 export async function getInstanceStatus(
-  config: WapiConfig
+  config: WapiConfig,
 ): Promise<{ instanceId: string; connected: boolean }> {
   return wapiRequest(config, "/instance/status-instance");
 }
 
 export async function getQrCode(
-  config: WapiConfig
+  config: WapiConfig,
 ): Promise<{ qrcode: string }> {
   const params = new URLSearchParams({
     instanceId: config.instanceId,
@@ -185,7 +185,7 @@ function toFiniteNumber(value: unknown): number | null {
 
 function firstNonEmptyString(
   records: AnyRecord[],
-  keys: string[]
+  keys: string[],
 ): string | null {
   for (const record of records) {
     for (const key of keys) {
@@ -253,7 +253,7 @@ function groupRecordScore(record: AnyRecord): number {
 
 function rankedGroupRecords(raw: unknown): AnyRecord[] {
   return collectRecordCandidates(raw).sort(
-    (a, b) => groupRecordScore(b) - groupRecordScore(a)
+    (a, b) => groupRecordScore(b) - groupRecordScore(a),
   );
 }
 
@@ -318,8 +318,12 @@ export function normalizeWapiGroups(raw: unknown): WapiGroup[] {
       if (!id || !id.includes("@g.us") || seen.has(id)) continue;
 
       const name =
-        firstNonEmptyString(candidates, ["name", "subject", "groupName", "title"]) ||
-        "Sem nome";
+        firstNonEmptyString(candidates, [
+          "name",
+          "subject",
+          "groupName",
+          "title",
+        ]) || "Sem nome";
       const participants = findFirstNumber(candidates, [
         "size",
         "participantsCount",
@@ -345,9 +349,13 @@ export function normalizeWapiGroups(raw: unknown): WapiGroup[] {
 
 export function isWapiDisconnectedError(error: unknown): boolean {
   const message =
-    error instanceof Error ? error.message : typeof error === "string" ? error : "";
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
   return /whatsapp\s+n[aã]o\s+conectado|not\s+connected|disconnected/i.test(
-    message
+    message,
   );
 }
 
@@ -460,17 +468,21 @@ export function extractInviteUrlFromResponse(raw: unknown): string | null {
 
 export async function createGroup(
   config: WapiConfig,
-  input: WapiCreateGroupInput
+  input: WapiCreateGroupInput,
 ): Promise<{ groupId: string | null; inviteUrl: string | null; raw: unknown }> {
-  const raw = await wapiRequest<Record<string, unknown>>(config, "/group/create-group", {
-    method: "POST",
-    body: {
-      groupName: input.groupName,
-      participants: input.participants,
-      profilePictureUrl: input.profilePictureUrl || "",
-      autoInvite: input.autoInvite ?? false,
+  const raw = await wapiRequest<Record<string, unknown>>(
+    config,
+    "/group/create-group",
+    {
+      method: "POST",
+      body: {
+        groupName: input.groupName,
+        participants: input.participants,
+        profilePictureUrl: input.profilePictureUrl || "",
+        autoInvite: input.autoInvite ?? false,
+      },
     },
-  });
+  );
   const group = (raw.group || {}) as Record<string, unknown>;
   return {
     groupId: (group.id as string) || (raw.groupId as string) || null,
@@ -481,7 +493,7 @@ export async function createGroup(
 
 export async function revokeGroupInvite(
   config: WapiConfig,
-  groupId: string
+  groupId: string,
 ): Promise<WapiGroupInviteResult> {
   const raw = await wapiRequest<unknown>(config, "/group/revoke-invite", {
     method: "POST",
@@ -507,19 +519,19 @@ export interface WapiGroupMetadata {
  */
 export async function getGroupMetadata(
   config: WapiConfig,
-  groupId: string
+  groupId: string,
 ): Promise<WapiGroupMetadata> {
   const raw = await wapiRequest<Record<string, unknown>>(
     config,
     "/group/group-metadata",
-    { extraParams: { groupId } }
+    { extraParams: { groupId } },
   );
   return extractGroupMetadata(raw, groupId);
 }
 
 export function extractGroupMetadata(
   raw: Record<string, unknown>,
-  fallbackId: string
+  fallbackId: string,
 ): WapiGroupMetadata {
   const candidates = rankedGroupRecords(raw);
   const participants = firstArrayLike(candidates, [
@@ -557,7 +569,7 @@ export function extractGroupMetadata(
     participants.filter((participant) => {
       if (!isRecord(participant)) return false;
       const role = String(
-        participant.admin || participant.role || participant.type || ""
+        participant.admin || participant.role || participant.type || "",
       ).toLowerCase();
       return (
         participant.admin === true ||
@@ -568,8 +580,12 @@ export function extractGroupMetadata(
       );
     }).length;
   const name =
-    firstNonEmptyString(candidates, ["subject", "name", "groupName", "title"]) ||
-    "";
+    firstNonEmptyString(candidates, [
+      "subject",
+      "name",
+      "groupName",
+      "title",
+    ]) || "";
 
   return {
     id:
@@ -588,13 +604,13 @@ export function extractGroupMetadata(
 }
 
 export async function disconnectInstance(
-  config: WapiConfig
+  config: WapiConfig,
 ): Promise<{ error?: boolean; message?: string; instanceId?: string }> {
   return wapiRequest(config, "/instance/disconnect");
 }
 
 export async function restartInstance(
-  config: WapiConfig
+  config: WapiConfig,
 ): Promise<{ error?: boolean; message?: string }> {
   return wapiRequest(config, "/instance/restart");
 }
@@ -615,14 +631,14 @@ export async function restartInstance(
  * usable and it is safe to dispatch.
  */
 export async function checkInstanceHealth(
-  config: WapiConfig
+  config: WapiConfig,
 ): Promise<{ healthy: boolean; reason?: string }> {
   // 1) status check — must be connected
   let status: { connected?: boolean } | null = null;
   try {
     status = await wapiRequest<{ connected?: boolean }>(
       config,
-      "/instance/status-instance"
+      "/instance/status-instance",
     );
   } catch (err) {
     return {
@@ -682,7 +698,7 @@ export async function sendText(
   config: WapiConfig,
   phone: string,
   message: string,
-  delayMessage = 1
+  delayMessage = 1,
 ): Promise<WapiSendResult> {
   return wapiRequest(config, "/message/send-text", {
     method: "POST",
@@ -695,7 +711,7 @@ export async function sendImage(
   phone: string,
   image: string,
   caption?: string,
-  delayMessage = 1
+  delayMessage = 1,
 ): Promise<WapiSendResult> {
   return wapiRequest(config, "/message/send-image", {
     method: "POST",
@@ -708,7 +724,7 @@ export async function sendVideo(
   phone: string,
   video: string,
   caption?: string,
-  delayMessage = 1
+  delayMessage = 1,
 ): Promise<WapiSendResult> {
   return wapiRequest(config, "/message/send-video", {
     method: "POST",
@@ -720,7 +736,7 @@ export async function sendAudio(
   config: WapiConfig,
   phone: string,
   audio: string,
-  delayMessage = 1
+  delayMessage = 1,
 ): Promise<WapiSendResult> {
   return wapiRequest(config, "/message/send-audio", {
     method: "POST",
@@ -735,10 +751,52 @@ export async function sendDocument(
   extension: string,
   fileName?: string,
   caption?: string,
-  delayMessage = 1
+  delayMessage = 1,
 ): Promise<WapiSendResult> {
   return wapiRequest(config, "/message/send-document", {
     method: "POST",
     body: { phone, document, extension, fileName, caption, delayMessage },
+  });
+}
+
+const MESSAGE_ENDPOINTS: Record<WapiMessageType, string> = {
+  text: "/message/send-text",
+  image: "/message/send-image",
+  video: "/message/send-video",
+  audio: "/message/send-audio",
+  document: "/message/send-document",
+  sticker: "/message/send-sticker",
+  gif: "/message/send-gif",
+  ptv: "/message/send-ptv",
+  location: "/message/send-location",
+  contact: "/message/send-contact",
+  contacts: "/message/send-contacts",
+  button_actions: "/message/send-button-actions",
+  buttons: "/message/send-button-list",
+  otp: "/message/send-button-otp",
+  pix: "/message/send-button-pix",
+  carousel: "/message/send-carousel",
+  list: "/message/send-list",
+  poll: "/message/send-poll",
+  reaction: "/message/send-reaction",
+  remove_reaction: "/message/remove-reaction",
+};
+
+/**
+ * Envia qualquer formato documentado pela W-API para um chat. O campo phone
+ * aceita tanto telefone quanto JID de grupo; o payload chega aqui previamente
+ * normalizado pela API do dashboard.
+ */
+export async function sendWapiMessage(
+  config: WapiConfig,
+  messageType: WapiMessageType,
+  phone: string,
+  payload: WapiMessagePayload,
+  delayMessage = 1,
+): Promise<WapiSendResult> {
+  const wirePayload = toWapiWirePayload(messageType, payload);
+  return wapiRequest(config, MESSAGE_ENDPOINTS[messageType], {
+    method: "POST",
+    body: { phone, ...wirePayload, delayMessage },
   });
 }

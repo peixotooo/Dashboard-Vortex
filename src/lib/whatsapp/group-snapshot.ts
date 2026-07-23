@@ -19,6 +19,10 @@ import {
   type WapiConfig,
 } from "@/lib/wapi-api";
 import { spDateString } from "@/lib/series-utils";
+import {
+  filterVisibleCachedGroups,
+  filterVisibleWapiGroups,
+} from "@/lib/whatsapp/group-visibility";
 
 export type GroupSnapshotSource = "cron" | "manual";
 
@@ -38,22 +42,21 @@ function sleep(ms: number) {
 async function getGroupJids(
   db: SupabaseClient,
   workspaceId: string,
-  config: WapiConfig
+  config: WapiConfig,
 ): Promise<Array<{ jid: string; name: string }>> {
   const { data: cached } = await db
     .from("wapi_groups")
     .select("group_jid, group_name")
     .eq("workspace_id", workspaceId);
 
-  const cachedGroups =
-    cached?.map((g) => ({
-      jid: g.group_jid as string,
-      name: (g.group_name as string) || "",
-    })) || [];
+  const cachedGroups = filterVisibleCachedGroups(cached || []).map((g) => ({
+    jid: g.group_jid as string,
+    name: (g.group_name as string) || "",
+  }));
 
   try {
     const raw = await listGroups(config);
-    const list = normalizeWapiGroups(raw).map((g) => ({
+    const list = filterVisibleWapiGroups(normalizeWapiGroups(raw)).map((g) => ({
       jid: g.id,
       name: g.name || "Sem nome",
     }));
@@ -67,7 +70,7 @@ async function getGroupJids(
           group_name: g.name || "Sem nome",
           synced_at: now,
         })),
-        { onConflict: "workspace_id,group_jid" }
+        { onConflict: "workspace_id,group_jid" },
       );
 
       return list;
@@ -86,7 +89,7 @@ async function getGroupJids(
 export async function captureGroupSnapshots(
   db: SupabaseClient,
   workspaceId: string,
-  opts: { source?: GroupSnapshotSource; throttleMs?: number } = {}
+  opts: { source?: GroupSnapshotSource; throttleMs?: number } = {},
 ): Promise<GroupSnapshotResult> {
   const source = opts.source ?? "manual";
   const throttleMs = opts.throttleMs ?? 350;
@@ -181,7 +184,7 @@ export async function captureGroupSnapshots(
           admins_count: meta.adminsCount,
           source,
         },
-        { onConflict: "workspace_id,group_jid,captured_on" }
+        { onConflict: "workspace_id,group_jid,captured_on" },
       );
 
       // Mantém o nome do grupo no cache atualizado.
@@ -210,5 +213,11 @@ export async function captureGroupSnapshots(
     if (i < groups.length - 1 && throttleMs > 0) await sleep(throttleMs);
   }
 
-  return { configured: true, connected: true, groupsCaptured, totalMembers, errors };
+  return {
+    configured: true,
+    connected: true,
+    groupsCaptured,
+    totalMembers,
+    errors,
+  };
 }

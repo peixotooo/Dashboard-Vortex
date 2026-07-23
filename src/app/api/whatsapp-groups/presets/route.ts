@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { filterVisibleGroupJids } from "@/lib/whatsapp/group-visibility";
 
 export async function GET(request: NextRequest) {
   try {
@@ -17,7 +18,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json({
-      presets: (data || []).filter((preset) => !String(preset.name || "").startsWith("__pool__:")),
+      presets: (data || [])
+        .filter((preset) => !String(preset.name || "").startsWith("__pool__:"))
+        .map((preset) => ({
+          ...preset,
+          group_jids: filterVisibleGroupJids(preset.group_jids || []),
+        })),
     });
   } catch (error) {
     return handleAuthError(error);
@@ -34,10 +40,14 @@ export async function POST(request: NextRequest) {
       group_jids: string[];
     };
 
-    if (!name || !group_jids || group_jids.length === 0) {
+    const visibleGroupJids = Array.isArray(group_jids)
+      ? filterVisibleGroupJids(group_jids)
+      : [];
+
+    if (!name || visibleGroupJids.length === 0) {
       return NextResponse.json(
         { error: "Name and at least one group required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -47,7 +57,7 @@ export async function POST(request: NextRequest) {
       .insert({
         workspace_id: workspaceId,
         name,
-        group_jids,
+        group_jids: visibleGroupJids,
         created_by: userId,
       })
       .select("id, name, group_jids")

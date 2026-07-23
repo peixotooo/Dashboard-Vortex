@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { getWapiConfig, WapiMessageType } from "@/lib/wapi-api";
+import { getWapiConfig } from "@/lib/wapi-api";
+import {
+  getWapiPayloadSummary,
+  isWapiMessageType,
+  normalizeWapiMessagePayload,
+  type WapiMessagePayload,
+} from "@/lib/whatsapp/wapi-message-types";
+import { isVisibleWapiGroupJid } from "@/lib/whatsapp/group-visibility";
 
 export const maxDuration = 120;
 
@@ -13,13 +20,14 @@ export async function POST(request: NextRequest) {
     if (!config)
       return NextResponse.json(
         { error: "W-API not configured" },
-        { status: 400 }
+        { status: 400 },
       );
 
     const body = await request.json();
     const {
       groups,
       messageType,
+      payload,
       message,
       caption,
       mediaUrl,
@@ -30,7 +38,8 @@ export async function POST(request: NextRequest) {
       save_as_draft,
     } = body as {
       groups: Array<{ jid: string; name?: string }>;
-      messageType: WapiMessageType;
+      messageType: unknown;
+      payload?: WapiMessagePayload;
       message?: string;
       caption?: string;
       mediaUrl?: string;
@@ -41,15 +50,108 @@ export async function POST(request: NextRequest) {
       save_as_draft?: boolean;
     };
 
-    if (!groups || groups.length === 0) {
+    if (!Array.isArray(groups) || groups.length === 0) {
       return NextResponse.json(
         { error: "No groups selected" },
-        { status: 400 }
+        { status: 400 },
+      );
+    }
+
+    if (!isWapiMessageType(messageType)) {
+      return NextResponse.json(
+        { error: "Tipo de mensagem não suportado." },
+        { status: 400 },
+      );
+    }
+
+    const sanitizedGroups = groups
+      .filter(
+        (group): group is { jid: string; name?: string } =>
+          !!group &&
+          typeof group.jid === "string" &&
+          group.jid.endsWith("@g.us") &&
+          isVisibleWapiGroupJid(group.jid),
+      )
+      .map((group) => ({
+        jid: group.jid.trim(),
+        name: typeof group.name === "string" ? group.name.trim() : undefined,
+      }));
+
+    if (sanitizedGroups.length !== groups.length) {
+      return NextResponse.json(
+        { error: "A seleção contém um identificador de grupo inválido." },
+        { status: 400 },
+      );
+    }
+
+    // Compatibilidade com clientes antigos, que enviavam os campos de mídia
+    // diretamente em vez do payload estruturado.
+    const legacyPayload: WapiMessagePayload = (() => {
+      switch (messageType) {
+        case "text":
+          return { message: message || "" };
+        case "image":
+          return { image: mediaUrl || "", caption };
+        case "video":
+          return { video: mediaUrl || "", caption };
+        case "audio":
+          return { audio: mediaUrl || "" };
+        case "document":
+          return {
+            document: mediaUrl || "",
+            extension: extension || "pdf",
+            fileName,
+            caption,
+          };
+        default:
+          return {};
+      }
+    })();
+
+    let normalizedPayload: WapiMessagePayload;
+    try {
+      normalizedPayload = normalizeWapiMessagePayload(
+        messageType,
+        payload || legacyPayload,
+      );
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Payload de mensagem inválido.",
+        },
+        { status: 400 },
       );
     }
 
     const admin = createAdminClient();
-    const delay = delayMessage ?? 1;
+    const rawDelay =
+      typeof delayMessage === "number" && Number.isFinite(delayMessage)
+        ? delayMessage
+        : 1;
+    const delay = Math.min(60, Math.max(0, Math.floor(rawDelay)));
+    const contentSummary = getWapiPayloadSummary(
+      messageType,
+      normalizedPayload,
+    );
+    const normalizedMediaUrl =
+      typeof normalizedPayload.image === "string"
+        ? normalizedPayload.image
+        : typeof normalizedPayload.video === "string"
+          ? normalizedPayload.video
+          : typeof normalizedPayload.audio === "string"
+            ? normalizedPayload.audio
+            : typeof normalizedPayload.document === "string"
+              ? normalizedPayload.document
+              : typeof normalizedPayload.sticker === "string"
+                ? normalizedPayload.sticker
+                : typeof normalizedPayload.gif === "string"
+                  ? normalizedPayload.gif
+                  : typeof normalizedPayload.ptv === "string"
+                    ? normalizedPayload.ptv
+                    : null;
 
     // Decide o status inicial.
     // - draft: usuário ativa manualmente depois (cron já ignora).
@@ -64,29 +166,36 @@ export async function POST(request: NextRequest) {
     const initialStatus = isDraft
       ? "draft"
       : isScheduled
-      ? "scheduled"
-      : "queued";
+        ? "scheduled"
+        : "queued";
 
     const { data: dispatch, error: dispatchError } = await admin
       .from("wapi_group_dispatches")
       .insert({
         workspace_id: workspaceId,
         message_type: messageType,
-        content: message || caption || null,
-        media_url: mediaUrl || null,
-        file_name: fileName || null,
-        file_extension: extension || null,
+        content: contentSummary,
+        media_url: normalizedMediaUrl,
+        file_name:
+          typeof normalizedPayload.fileName === "string"
+            ? normalizedPayload.fileName
+            : null,
+        file_extension:
+          typeof normalizedPayload.extension === "string"
+            ? normalizedPayload.extension
+            : null,
+        payload: normalizedPayload,
         delay_seconds: delay,
         status: initialStatus,
         // Pra draft, persistimos scheduled_at mesmo se já passou — usuário
         // pode editar depois ou simplesmente ativar pra envio imediato.
         scheduled_at: initialStatus === "queued" ? null : scheduled_at || null,
         started_at: null,
-        target_groups: groups.map((g) => ({
+        target_groups: sanitizedGroups.map((g) => ({
           jid: g.jid,
           name: g.name || null,
         })),
-        total_groups: groups.length,
+        total_groups: sanitizedGroups.length,
         sent_by: userId,
       })
       .select("id")
@@ -95,7 +204,7 @@ export async function POST(request: NextRequest) {
     if (dispatchError || !dispatch) {
       return NextResponse.json(
         { error: "Failed to create dispatch" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -105,7 +214,7 @@ export async function POST(request: NextRequest) {
         dispatch_id: dispatch.id,
         status: "draft",
         scheduled_at: scheduled_at || null,
-        total: groups.length,
+        total: sanitizedGroups.length,
       });
     }
     if (isScheduled) {
@@ -113,7 +222,7 @@ export async function POST(request: NextRequest) {
         dispatch_id: dispatch.id,
         status: "scheduled",
         scheduled_at,
-        total: groups.length,
+        total: sanitizedGroups.length,
       });
     }
 
@@ -121,7 +230,7 @@ export async function POST(request: NextRequest) {
       dispatch_id: dispatch.id,
       status: "queued",
       queued: true,
-      total: groups.length,
+      total: sanitizedGroups.length,
     });
   } catch (error) {
     return handleAuthError(error);
