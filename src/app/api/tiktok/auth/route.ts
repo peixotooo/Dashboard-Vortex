@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
+import {
+  getWorkspaceAdminContext,
+  handleAuthError,
+} from "@/lib/api-auth";
+import { createOAuthState } from "@/lib/security/oauth-state";
 
 /**
  * Starts the TikTok Marketing API OAuth flow. Mirrors src/app/api/ml/auth/route.ts,
@@ -12,59 +16,57 @@ import crypto from "crypto";
  * TIKTOK_AUTH_URL is absent we build the URL from app_id + rid + redirect_uri.
  */
 export async function GET(req: NextRequest) {
-  const appId = process.env.TIKTOK_APP_ID;
-  const redirectUri = process.env.TIKTOK_REDIRECT_URI;
-  const authUrl = process.env.TIKTOK_AUTH_URL;
-  const rid = process.env.TIKTOK_AUTH_RID;
+  try {
+    const { workspaceId } = await getWorkspaceAdminContext(req);
+    const appId = process.env.TIKTOK_APP_ID;
+    const redirectUri = process.env.TIKTOK_REDIRECT_URI;
+    const authUrl = process.env.TIKTOK_AUTH_URL;
+    const rid = process.env.TIKTOK_AUTH_RID;
 
-  if (!appId || !redirectUri) {
-    return NextResponse.json(
-      { error: "TIKTOK_APP_ID and TIKTOK_REDIRECT_URI must be configured" },
-      { status: 500 }
-    );
-  }
-
-  const workspaceId = req.nextUrl.searchParams.get("workspace_id") || "";
-  if (!workspaceId) {
-    return NextResponse.json({ error: "workspace_id is required" }, { status: 400 });
-  }
-
-  // CSRF: random nonce in the cookie, full state = nonce:workspaceId in the URL.
-  const csrf = crypto.randomBytes(16).toString("hex");
-  const stateParam = `${csrf}:${workspaceId}`;
-
-  let url: URL;
-  if (authUrl) {
-    url = new URL(authUrl);
-    url.searchParams.set("state", stateParam);
-    // Ensure the redirect_uri matches what we registered, even if the portal URL omits it.
-    if (!url.searchParams.get("redirect_uri")) {
-      url.searchParams.set("redirect_uri", redirectUri);
-    }
-  } else {
-    if (!rid) {
+    if (!appId || !redirectUri) {
       return NextResponse.json(
-        {
-          error:
-            "Configure TIKTOK_AUTH_URL (recomendado, copie do portal) ou TIKTOK_AUTH_RID para montar a URL de autorizacao.",
-        },
+        { error: "TIKTOK_APP_ID and TIKTOK_REDIRECT_URI must be configured" },
         { status: 500 }
       );
     }
-    url = new URL("https://business-api.tiktok.com/portal/auth");
-    url.searchParams.set("app_id", appId);
-    url.searchParams.set("rid", rid);
-    url.searchParams.set("redirect_uri", redirectUri);
-    url.searchParams.set("state", stateParam);
-  }
 
-  const res = NextResponse.redirect(url.toString());
-  res.cookies.set("tiktok_oauth_state", csrf, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 600, // 10 min
-  });
-  return res;
+    const { nonce, state } = createOAuthState(workspaceId);
+
+    let url: URL;
+    if (authUrl) {
+      url = new URL(authUrl);
+      url.searchParams.set("state", state);
+      // Ensure the redirect_uri matches what we registered, even if the portal URL omits it.
+      if (!url.searchParams.get("redirect_uri")) {
+        url.searchParams.set("redirect_uri", redirectUri);
+      }
+    } else {
+      if (!rid) {
+        return NextResponse.json(
+          {
+            error:
+              "Configure TIKTOK_AUTH_URL (recomendado, copie do portal) ou TIKTOK_AUTH_RID para montar a URL de autorizacao.",
+          },
+          { status: 500 }
+        );
+      }
+      url = new URL("https://business-api.tiktok.com/portal/auth");
+      url.searchParams.set("app_id", appId);
+      url.searchParams.set("rid", rid);
+      url.searchParams.set("redirect_uri", redirectUri);
+      url.searchParams.set("state", state);
+    }
+
+    const response = NextResponse.redirect(url.toString());
+    response.cookies.set("tiktok_oauth_state", nonce, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 600,
+    });
+    return response;
+  } catch (error) {
+    return handleAuthError(error);
+  }
 }

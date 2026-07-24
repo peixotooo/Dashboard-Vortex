@@ -11,6 +11,7 @@
     "test:eccosys-stock-bulk": "node --experimental-strip-types --test scripts/eccosys-stock-bulk.test.ts",
     "test:instagram": "node --experimental-strip-types --test scripts/instagram-profile.test.ts",
     "test:psp": "node --experimental-strip-types --test scripts/psp-engine.test.ts",
+    "test:security-critical": "node --experimental-strip-types --test scripts/security-critical.test.ts",
     "import:psp-on-demand": "node --experimental-strip-types scripts/import-psp-on-demand.ts",
     "start": "next start",
     "lint": "next lint",
@@ -26,7 +27,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@google-analytics/data": "^5.2.1",
-    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "@napi-rs/canvas": "^0.1.100",
     "@radix-ui/react-avatar": "^1.1.11",
     "@radix-ui/react-collapsible": "^1.1.12",
@@ -63,7 +64,7 @@
     "dotenv": "^17.3.1",
     "gifenc": "^1.0.3",
     "lucide-react": "^0.575.0",
-    "next": "^16.1.6",
+    "next": "16.2.11",
     "next-themes": "^0.4.6",
     "openai": "^6.27.0",
     "postcss": "^8.5.6",
@@ -74,14 +75,30 @@
     "recharts": "^3.7.0",
     "remark-gfm": "^4.0.1",
     "resend": "^6.9.3",
+    "sanitize-html": "^2.17.6",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.1",
     "tw-animate-css": "^1.4.0",
     "typescript": "^5.9.3"
   },
   "devDependencies": {
+    "@types/sanitize-html": "^2.16.1",
     "pg": "^8.20.0",
     "react-email": "^6.0.8",
     "shadcn": "^4.0.8"
+  },
+  "overrides": {
+    "@hono/node-server": "2.0.11",
+    "brace-expansion": "5.0.7",
+    "ajv": {
+      "fast-uri": "3.1.4"
+    },
+    "google-gax": {
+      "protobufjs": "7.6.5"
+    },
+    "next": {
+      "postcss": "8.5.22",
+      "sharp": "0.35.3"
+    }
   }
 }

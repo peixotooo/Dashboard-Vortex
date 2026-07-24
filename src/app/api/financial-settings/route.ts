@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { AuthError, getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import {
+  AuthError,
+  getWorkspaceAdminContext,
+  getWorkspaceContext,
+  handleAuthError,
+} from "@/lib/api-auth";
 
 const DEFAULTS = {
   monthly_fixed_costs: 160000,
@@ -72,7 +77,7 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const { workspaceId } = await getWorkspaceContext(request);
+    const { workspaceId } = await getWorkspaceAdminContext(request);
     const supabase = createSupabase(request);
 
     const body = await request.json();

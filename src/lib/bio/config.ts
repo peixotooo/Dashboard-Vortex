@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { normalizePublicBrowserUrl } from "@/lib/security/external-url";
 import {
   BIO_DEFAULT_PUBLIC_DOMAIN,
   BIO_DEFAULT_STORE_URL,
@@ -31,7 +32,11 @@ function cleanText(value: unknown, fallback = ""): string {
 
 function cleanUrl(value: unknown, fallback = ""): string {
   const raw = cleanText(value, fallback);
-  return raw.replace(/\/$/, "");
+  return (
+    normalizePublicBrowserUrl(raw)?.replace(/\/$/, "") ||
+    normalizePublicBrowserUrl(fallback)?.replace(/\/$/, "") ||
+    ""
+  );
 }
 
 function toPositiveInt(value: unknown, fallback: number, max = 24): number {

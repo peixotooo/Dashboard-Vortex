@@ -209,8 +209,19 @@ export async function saveMessage(
 export async function getConversationMessages(
   supabase: SupabaseClient,
   conversationId: string,
-  limit = 50
+  limit = 50,
+  workspaceId?: string
 ): Promise<ConversationMessage[]> {
+  if (workspaceId) {
+    const { data: conversation } = await supabase
+      .from("agent_conversations")
+      .select("id")
+      .eq("id", conversationId)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+    if (!conversation) return [];
+  }
+
   const { data, error } = await supabase
     .from("agent_messages")
     .select("*")
@@ -373,12 +384,15 @@ export async function seedDefaultDocuments(
 export async function updateMemoryValue(
   supabase: SupabaseClient,
   memoryId: string,
-  value: string
+  value: string,
+  workspaceId?: string
 ): Promise<CoreMemory> {
-  const { data, error } = await supabase
+  let query = supabase
     .from("agent_core_memory")
     .update({ value, updated_at: new Date().toISOString() })
-    .eq("id", memoryId)
+    .eq("id", memoryId);
+  if (workspaceId) query = query.eq("workspace_id", workspaceId);
+  const { data, error } = await query
     .select()
     .single();
 
@@ -388,12 +402,15 @@ export async function updateMemoryValue(
 
 export async function deleteMemoryById(
   supabase: SupabaseClient,
-  memoryId: string
+  memoryId: string,
+  workspaceId?: string
 ): Promise<void> {
-  const { error } = await supabase
+  let query = supabase
     .from("agent_core_memory")
     .delete()
     .eq("id", memoryId);
+  if (workspaceId) query = query.eq("workspace_id", workspaceId);
+  const { error } = await query;
 
   if (error) throw new Error(`Failed to delete memory: ${error.message}`);
 }
@@ -750,21 +767,28 @@ export async function listProjects(
 export async function updateProject(
   supabase: SupabaseClient,
   projectId: string,
-  updates: { status?: string; title?: string; description?: string }
+  updates: { status?: string; title?: string; description?: string },
+  workspaceId?: string
 ): Promise<AgentProject> {
   const updateData: Record<string, unknown> = {
-    ...updates,
     updated_at: new Date().toISOString(),
   };
+  if (typeof updates.status === "string") updateData.status = updates.status;
+  if (typeof updates.title === "string") updateData.title = updates.title;
+  if (typeof updates.description === "string") {
+    updateData.description = updates.description;
+  }
 
   if (updates.status === "done") {
     updateData.completed_at = new Date().toISOString();
   }
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("agent_projects")
     .update(updateData)
-    .eq("id", projectId)
+    .eq("id", projectId);
+  if (workspaceId) query = query.eq("workspace_id", workspaceId);
+  const { data, error } = await query
     .select()
     .single();
 
@@ -842,22 +866,34 @@ export async function updateTask(
     description?: string;
     agent_id?: string;
     due_date?: string | null;
-  }
+  },
+  workspaceId?: string
 ): Promise<AgentTask> {
   const updateData: Record<string, unknown> = {
-    ...updates,
     updated_at: new Date().toISOString(),
   };
+  if (typeof updates.status === "string") updateData.status = updates.status;
+  if (typeof updates.priority === "string") updateData.priority = updates.priority;
+  if (typeof updates.title === "string") updateData.title = updates.title;
+  if (typeof updates.description === "string") {
+    updateData.description = updates.description;
+  }
+  if (typeof updates.agent_id === "string") updateData.agent_id = updates.agent_id;
+  if (updates.due_date === null || typeof updates.due_date === "string") {
+    updateData.due_date = updates.due_date;
+  }
 
   // If moving to done, set completed_at
   if (updates.status === "done") {
     updateData.completed_at = new Date().toISOString();
   }
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("agent_tasks")
     .update(updateData)
-    .eq("id", taskId)
+    .eq("id", taskId);
+  if (workspaceId) query = query.eq("workspace_id", workspaceId);
+  const { data, error } = await query
     .select()
     .single();
 
@@ -897,7 +933,8 @@ export async function listTasks(
 
 export async function getTask(
   supabase: SupabaseClient,
-  taskId: string
+  taskId: string,
+  workspaceId?: string
 ): Promise<
   | (AgentTask & {
       deliverables: AgentDeliverable[];
@@ -905,20 +942,26 @@ export async function getTask(
     })
   | null
 > {
-  const { data: task, error } = await supabase
+  let taskQuery = supabase
     .from("agent_tasks")
     .select(
       "*, agent:agents!agent_tasks_agent_id_fkey(*), created_by_agent:agents!agent_tasks_created_by_agent_id_fkey(*), project:agent_projects!agent_tasks_project_id_fkey(*)"
     )
-    .eq("id", taskId)
+    .eq("id", taskId);
+  if (workspaceId) taskQuery = taskQuery.eq("workspace_id", workspaceId);
+  const { data: task, error } = await taskQuery
     .single();
 
   if (error || !task) return null;
 
-  const { data: deliverables } = await supabase
+  let deliverablesQuery = supabase
     .from("agent_deliverables")
     .select("*, agent:agents!agent_deliverables_agent_id_fkey(*)")
-    .eq("task_id", taskId)
+    .eq("task_id", taskId);
+  if (workspaceId) {
+    deliverablesQuery = deliverablesQuery.eq("workspace_id", workspaceId);
+  }
+  const { data: deliverables } = await deliverablesQuery
     .order("created_at", { ascending: false });
 
   return {
@@ -930,12 +973,15 @@ export async function getTask(
 
 export async function deleteTask(
   supabase: SupabaseClient,
-  taskId: string
+  taskId: string,
+  workspaceId?: string
 ): Promise<void> {
-  const { error } = await supabase
+  let query = supabase
     .from("agent_tasks")
     .delete()
     .eq("id", taskId);
+  if (workspaceId) query = query.eq("workspace_id", workspaceId);
+  const { error } = await query;
 
   if (error) throw new Error(`Failed to delete task: ${error.message}`);
 }
@@ -1027,12 +1073,15 @@ export async function listDeliverables(
 
 export async function getDeliverable(
   supabase: SupabaseClient,
-  deliverableId: string
+  deliverableId: string,
+  workspaceId?: string
 ): Promise<AgentDeliverable | null> {
-  const { data, error } = await supabase
+  let query = supabase
     .from("agent_deliverables")
     .select("*, agent:agents!agent_deliverables_agent_id_fkey(*)")
-    .eq("id", deliverableId)
+    .eq("id", deliverableId);
+  if (workspaceId) query = query.eq("workspace_id", workspaceId);
+  const { data, error } = await query
     .single();
 
   if (error) return null;
@@ -1519,12 +1568,15 @@ export async function listMarketingActions(
 
 export async function getMarketingAction(
   supabase: SupabaseClient,
-  actionId: string
+  actionId: string,
+  workspaceId?: string
 ): Promise<MarketingAction | null> {
-  const { data, error } = await supabase
+  let query = supabase
     .from("marketing_actions")
     .select("*")
-    .eq("id", actionId)
+    .eq("id", actionId);
+  if (workspaceId) query = query.eq("workspace_id", workspaceId);
+  const { data, error } = await query
     .single();
 
   if (error) return null;
@@ -1543,12 +1595,37 @@ export async function updateMarketingAction(
     end_date?: string;
     status?: string;
     content?: object;
-  }
+  },
+  workspaceId?: string
 ): Promise<MarketingAction> {
-  const { data, error } = await supabase
+  const updateData: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+  if (typeof updates.title === "string") updateData.title = updates.title;
+  if (typeof updates.description === "string") {
+    updateData.description = updates.description;
+  }
+  if (typeof updates.category === "string") updateData.category = updates.category;
+  if (updates.planning_type === "social" || updates.planning_type === "performance") {
+    updateData.planning_type = updates.planning_type;
+  }
+  if (typeof updates.start_date === "string") updateData.start_date = updates.start_date;
+  if (typeof updates.end_date === "string") updateData.end_date = updates.end_date;
+  if (typeof updates.status === "string") updateData.status = updates.status;
+  if (
+    updates.content &&
+    typeof updates.content === "object" &&
+    !Array.isArray(updates.content)
+  ) {
+    updateData.content = updates.content;
+  }
+
+  let query = supabase
     .from("marketing_actions")
-    .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq("id", actionId)
+    .update(updateData)
+    .eq("id", actionId);
+  if (workspaceId) query = query.eq("workspace_id", workspaceId);
+  const { data, error } = await query
     .select()
     .single();
 
@@ -1558,12 +1635,15 @@ export async function updateMarketingAction(
 
 export async function deleteMarketingAction(
   supabase: SupabaseClient,
-  actionId: string
+  actionId: string,
+  workspaceId?: string
 ): Promise<void> {
-  const { error } = await supabase
+  let query = supabase
     .from("marketing_actions")
     .delete()
     .eq("id", actionId);
+  if (workspaceId) query = query.eq("workspace_id", workspaceId);
+  const { error } = await query;
 
   if (error) throw new Error(`Failed to delete marketing action: ${error.message}`);
 }

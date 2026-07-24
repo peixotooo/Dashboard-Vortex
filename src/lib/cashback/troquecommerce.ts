@@ -1,5 +1,9 @@
 import { createAdminClient } from "@/lib/supabase-admin";
 import { encrypt, decrypt } from "@/lib/encryption";
+import {
+  fetchPublicHttpUrl,
+  validatePublicHttpUrl,
+} from "@/lib/security/external-url";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logEvent, type CashbackConfigRow, type CashbackTransactionRow } from "./api";
 import { withdrawalVndaCredit, getVndaCreditsConfigFromDb } from "./vnda-credits";
@@ -38,12 +42,28 @@ export async function saveTroqueConfig(
   apiToken: string,
   baseUrl?: string
 ): Promise<{ ok: boolean; error?: string }> {
+  const requestedBaseUrl =
+    baseUrl?.trim() || "https://www.troquecommerce.com.br";
+  let normalizedBaseUrl: string;
+  try {
+    const validated = await validatePublicHttpUrl(
+      requestedBaseUrl,
+      "Troquecommerce base URL"
+    );
+    if (validated.protocol !== "https:") {
+      return { ok: false, error: "A URL da Troquecommerce deve usar HTTPS" };
+    }
+    normalizedBaseUrl = validated.toString().replace(/\/+$/, "");
+  } catch {
+    return { ok: false, error: "URL da Troquecommerce inválida" };
+  }
+
   const admin = createAdminClient();
   const { error } = await admin.from("troquecommerce_config").upsert(
     {
       workspace_id: workspaceId,
       api_token: encrypt(apiToken),
-      base_url: baseUrl || "https://www.troquecommerce.com.br",
+      base_url: normalizedBaseUrl,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "workspace_id" }
@@ -61,13 +81,21 @@ export async function getExchangesForOrder(
 ): Promise<ExchangeSummary> {
   try {
     const url = `${cfg.baseUrl}/api/public/order/list?order_code=${encodeURIComponent(orderCode)}`;
-    const res = await fetch(url, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${cfg.apiToken}`,
-        Accept: "application/json",
+    const res = await fetchPublicHttpUrl(
+      url,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${cfg.apiToken}`,
+          Accept: "application/json",
+        },
       },
-    });
+      {
+        label: "Troquecommerce API",
+        maxRedirects: 1,
+        allowCrossOriginRedirects: false,
+      }
+    );
     if (!res.ok) return { totalValue: 0, count: 0, raw: null };
     const json = (await res.json().catch(() => null)) as {
       data?: Array<{ total?: number; value?: number; amount?: number; status?: string }>;

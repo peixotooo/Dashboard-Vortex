@@ -1,17 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { syncSingleProduct } from "@/lib/shelves/catalog-sync";
+import {
+  consumeSecurityRateLimit,
+  getRequestClientIp,
+} from "@/lib/security/rate-limit";
+import {
+  getWebhookSecret,
+  readLimitedJson,
+} from "@/lib/security/webhook-request";
 
 export const maxDuration = 30;
+const MAX_WEBHOOK_BYTES = 2 * 1024 * 1024;
 
 export async function POST(request: NextRequest) {
-  const token = request.nextUrl.searchParams.get("token");
+  const token = getWebhookSecret(request);
 
   if (!token) {
     return NextResponse.json(
       { error: "Missing token parameter" },
       { status: 401 }
     );
+  }
+
+  const rateLimit = await consumeSecurityRateLimit({
+    scope: "webhook:vnda:products",
+    key: `${getRequestClientIp(request)}:${token}`,
+    limit: 600,
+    windowSeconds: 60,
+  });
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ ok: false, reason: "rate_limited" });
   }
 
   const admin = createAdminClient();
@@ -31,12 +50,14 @@ export async function POST(request: NextRequest) {
   const workspaceId = connection.workspace_id as string;
   const storeHost = connection.store_host as string;
 
-  let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  const parsedBody = await readLimitedJson(request, MAX_WEBHOOK_BYTES);
+  if (!parsedBody.ok) {
+    return NextResponse.json(
+      { error: parsedBody.error },
+      { status: parsedBody.status }
+    );
   }
+  const payload = parsedBody.value;
 
   try {
     await syncSingleProduct(

@@ -15,115 +15,22 @@
 //     per source.
 
 import { createHash } from "crypto";
-import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
 import { uploadFile, getPublicUrl } from "@/lib/b2-storage";
+import { readPublicUrlBuffer } from "@/lib/security/external-url";
 
 const MAX_HERO_SOURCE_BYTES = 10 * 1024 * 1024;
-
-function isPrivateIp(hostname: string): boolean {
-  const host = hostname.replace(/^\[|\]$/g, "");
-  const version = isIP(host);
-
-  if (version === 4) {
-    const [a, b] = host.split(".").map(Number);
-    return (
-      a === 10 ||
-      a === 127 ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 169 && b === 254) ||
-      a === 0
-    );
-  }
-
-  if (version === 6) {
-    const normalized = host.toLowerCase();
-    return (
-      normalized === "::1" ||
-      normalized.startsWith("fc") ||
-      normalized.startsWith("fd") ||
-      normalized.startsWith("fe80:")
-    );
-  }
-
-  return false;
-}
-
-async function validatePublicSourceUrl(rawUrl: string): Promise<URL> {
-  let url: URL;
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    throw new Error("source URL must be valid");
-  }
-
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error("source URL must use http or https");
-  }
-
-  if (url.username || url.password) {
-    throw new Error("source URL must not include credentials");
-  }
-
-  const hostname = url.hostname.toLowerCase();
-  if (
-    hostname === "localhost" ||
-    hostname.endsWith(".localhost") ||
-    hostname.endsWith(".local") ||
-    isPrivateIp(hostname)
-  ) {
-    throw new Error("source URL must point to a public host");
-  }
-
-  const addresses = await lookup(hostname, { all: true }).catch(() => []);
-  if (addresses.some((address) => isPrivateIp(address.address))) {
-    throw new Error("source URL resolved to a private network address");
-  }
-
-  return url;
-}
 
 async function fetchPublicImage(rawUrl: string): Promise<{
   buffer: Buffer;
   contentType: string;
   finalUrl: string;
 }> {
-  let currentUrl = await validatePublicSourceUrl(rawUrl);
-
-  for (let redirects = 0; redirects <= 3; redirects += 1) {
-    const res = await fetch(currentUrl.toString(), { redirect: "manual" });
-
-    if (res.status >= 300 && res.status < 400) {
-      const location = res.headers.get("location");
-      if (!location) throw new Error("source URL redirected without a location");
-      currentUrl = await validatePublicSourceUrl(new URL(location, currentUrl).toString());
-      continue;
-    }
-
-    if (!res.ok) {
-      throw new Error(`download failed: ${res.status}`);
-    }
-
-    const contentType = res.headers.get("content-type") ?? "image/jpeg";
-    if (!contentType.startsWith("image/")) {
-      throw new Error(`source URL did not return an image: ${contentType}`);
-    }
-
-    const contentLength = Number(res.headers.get("content-length") || "0");
-    if (contentLength > MAX_HERO_SOURCE_BYTES) {
-      throw new Error("source image is too large");
-    }
-
-    const buffer = Buffer.from(await res.arrayBuffer());
-    if (buffer.byteLength > MAX_HERO_SOURCE_BYTES) {
-      throw new Error("source image is too large");
-    }
-
-    return { buffer, contentType, finalUrl: currentUrl.toString() };
-  }
-
-  throw new Error("source URL redirected too many times");
+  return readPublicUrlBuffer(rawUrl, {
+    label: "hero source",
+    maxBytes: MAX_HERO_SOURCE_BYTES,
+    allowedContentTypes: /^image\//i,
+    timeoutMs: 20_000,
+  });
 }
 
 function pickExtension(contentType: string, sourceUrl: string): string {

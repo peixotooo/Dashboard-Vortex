@@ -12,17 +12,27 @@ import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { getReadyCreds } from "@/lib/locaweb/settings";
 import { createContactImport, listLists } from "@/lib/locaweb/email-marketing";
 import { createAdminClient } from "@/lib/supabase-admin";
+import {
+  EMAIL_IMPORT_BUCKET,
+  uploadEmailImportCsv,
+} from "@/lib/email-templates/import-storage";
 import { upsertAudience } from "@/lib/email-templates/audiences";
 import { randomUUID } from "crypto";
+import {
+  consumeSecurityRateLimit,
+  getRequestClientIp,
+} from "@/lib/security/rate-limit";
+import { readLimitedJson } from "@/lib/security/webhook-request";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const BUCKET = "email-list-imports";
-
 interface Body {
   contacts: Array<{ email: string; name?: string | null }>;
 }
+
+const MAX_CONTACTS = 50_000;
+const MAX_BODY_BYTES = 10 * 1024 * 1024;
 
 function isValidEmail(e: string | undefined | null): e is string {
   if (!e) return false;
@@ -42,48 +52,6 @@ function buildCsv(rows: Array<{ email: string; name?: string | null }>): string 
   return lines.join("\n");
 }
 
-let bucketKnownToExist = false;
-
-async function ensureBucket() {
-  if (bucketKnownToExist) return;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!.trim().replace(/\/+$/, "");
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!.trim();
-  await fetch(`${url}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      id: BUCKET,
-      name: BUCKET,
-      public: true,
-      file_size_limit: 50 * 1024 * 1024,
-    }),
-  }).catch(() => {});
-  bucketKnownToExist = true;
-}
-
-async function uploadCsv(path: string, csv: string): Promise<string> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!.trim().replace(/\/+$/, "");
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!.trim();
-  const r = await fetch(`${url}/storage/v1/object/${BUCKET}/${path}`, {
-    method: "POST",
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "text/csv",
-      "x-upsert": "true",
-    },
-    body: csv,
-  });
-  if (!r.ok) {
-    throw new Error(`Falha ao subir CSV pro storage (HTTP ${r.status}).`);
-  }
-  return `${url}/storage/v1/object/public/${BUCKET}/${path}`;
-}
-
 // This endpoint kicks off the import without waiting for completion —
 // the client polls /imports/[id] for live status. Different from
 // bulkImportContacts() in the lib, which waits for completion (used by
@@ -95,9 +63,34 @@ export async function POST(
   try {
     const { workspaceId } = await getWorkspaceContext(req);
     const { id } = await params;
-    if (!id) return NextResponse.json({ error: "list id ausente." }, { status: 400 });
+    if (!/^\d{1,20}$/.test(id)) {
+      return NextResponse.json({ error: "list id inválido." }, { status: 400 });
+    }
 
-    const body = (await req.json()) as Body;
+    const rateLimit = await consumeSecurityRateLimit({
+      scope: "email-templates:bulk-import",
+      key: `${workspaceId}:${getRequestClientIp(req)}`,
+      limit: 10,
+      windowSeconds: 3600,
+    });
+    if (!rateLimit.allowed) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+    }
+
+    const parsed = await readLimitedJson(req, MAX_BODY_BYTES);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    }
+    const body =
+      parsed.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+        ? (parsed.value as Partial<Body>)
+        : {};
+    if (!Array.isArray(body.contacts) || body.contacts.length > MAX_CONTACTS) {
+      return NextResponse.json(
+        { error: `Envie no máximo ${MAX_CONTACTS} contatos por importação.` },
+        { status: 400 }
+      );
+    }
 
     const seen = new Set<string>();
     const contacts: Array<{ email: string; name?: string | null }> = [];
@@ -108,7 +101,10 @@ export async function POST(
       seen.add(email);
       contacts.push({
         email,
-        name: typeof c.name === "string" && c.name.trim() ? c.name.trim() : null,
+        name:
+          typeof c.name === "string" && c.name.trim()
+            ? c.name.trim().slice(0, 160)
+            : null,
       });
     }
     if (contacts.length === 0) {
@@ -125,12 +121,11 @@ export async function POST(
       return NextResponse.json({ error: (err as Error).message }, { status: 400 });
     }
 
-    await ensureBucket();
     const objectPath = `${workspaceId}/${id}-${Date.now()}-${randomUUID().slice(0, 8)}.csv`;
     const csv = buildCsv(contacts);
-    let publicUrl: string;
+    let signedUrl: string;
     try {
-      publicUrl = await uploadCsv(objectPath, csv);
+      signedUrl = await uploadEmailImportCsv(objectPath, csv);
     } catch (err) {
       return NextResponse.json({ error: (err as Error).message }, { status: 502 });
     }
@@ -139,11 +134,14 @@ export async function POST(
     try {
       importRef = await createContactImport(creds.creds, {
         list_ids: [Number(id)],
-        url: publicUrl,
+        url: signedUrl,
       });
     } catch (err) {
       const sb = createAdminClient();
-      await sb.storage.from(BUCKET).remove([objectPath]).catch(() => {});
+      await sb.storage
+        .from(EMAIL_IMPORT_BUCKET)
+        .remove([objectPath])
+        .catch(() => {});
       return NextResponse.json(
         { error: `Locaweb rejeitou a importação: ${(err as Error).message}` },
         { status: 502 }

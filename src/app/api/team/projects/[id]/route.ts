@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { updateProject } from "@/lib/agent/memory";
+import {
+  AuthError,
+  getWorkspaceContext,
+  handleAuthError,
+} from "@/lib/api-auth";
+import { readLimitedJson } from "@/lib/security/webhook-request";
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -24,17 +33,17 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    const { workspaceId } = await getWorkspaceContext(request);
+    if (!UUID_RE.test(id)) {
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    }
     const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
     const { data: project, error } = await supabase
       .from("agent_projects")
       .select("*, created_by_agent:agents!agent_projects_created_by_agent_id_fkey(*)")
       .eq("id", id)
+      .eq("workspace_id", workspaceId)
       .single();
 
     if (error || !project)
@@ -45,13 +54,16 @@ export async function GET(
       .from("agent_tasks")
       .select("*, agent:agents!agent_tasks_agent_id_fkey(id, name, slug, avatar_color)")
       .eq("project_id", id)
+      .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: true });
 
     return NextResponse.json({ project: { ...project, tasks: tasks || [] } });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message =
       error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[team/projects/:id]", message);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
@@ -62,20 +74,32 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
+    const { workspaceId } = await getWorkspaceContext(request);
+    if (!UUID_RE.test(id)) {
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    }
     const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-    const body = await request.json();
-    const project = await updateProject(supabase, id, body);
+    const parsed = await readLimitedJson(request, 64 * 1024);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    }
+    const body =
+      parsed.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+        ? (parsed.value as {
+            status?: string;
+            title?: string;
+            description?: string;
+          })
+        : {};
+    const project = await updateProject(supabase, id, body, workspaceId);
     return NextResponse.json({ project });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message =
       error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[team/projects/:id]", message);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
@@ -86,23 +110,25 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
+    const { workspaceId } = await getWorkspaceContext(request);
+    if (!UUID_RE.test(id)) {
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    }
     const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
     const { error } = await supabase
       .from("agent_projects")
       .delete()
-      .eq("id", id);
+      .eq("id", id)
+      .eq("workspace_id", workspaceId);
 
     if (error) throw error;
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message =
       error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[team/projects/:id]", message);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

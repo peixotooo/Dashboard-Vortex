@@ -10,6 +10,8 @@
 //   - listLists / listSenders / listDomains (config bootstrap)
 //   - addContactsToList / removeContactsFromList (cluster sync, v2)
 
+import { fetchPublicHttpUrl } from "@/lib/security/external-url";
+
 export interface LocawebCreds {
   base_url: string;
   account_id: string;
@@ -32,15 +34,23 @@ async function request<T>(
   // Trim the token defensively. Locaweb's /senders and /domains endpoints
   // were returning 401 when the stored token had a trailing newline (paste
   // artifact), while /lists tolerated it — this normalizes both cases.
-  const res = await fetch(url, {
-    method,
-    headers: {
-      "X-Auth-Token": creds.token.trim(),
-      "Content-Type": "application/json",
-      Accept: "application/json",
+  const res = await fetchPublicHttpUrl(
+    url,
+    {
+      method,
+      headers: {
+        "X-Auth-Token": creds.token.trim(),
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
     },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+    {
+      label: "Locaweb API",
+      maxRedirects: 1,
+      allowCrossOriginRedirects: false,
+    }
+  );
   // Some Locaweb endpoints return empty body with 200/202 + Location header.
   const text = await res.text();
   let parsed: unknown = null;

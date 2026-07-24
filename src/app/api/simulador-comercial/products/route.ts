@@ -19,15 +19,11 @@ function createSupabase(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const { searchParams } = new URL(request.url);
-    const q = (searchParams.get("q") || "").trim();
+    const q = (searchParams.get("q") || "").trim().slice(0, 100);
     const limit = Math.min(50, Math.max(1, parseInt(searchParams.get("limit") || "20", 10) || 20));
 
     let query = supabase
@@ -39,14 +35,18 @@ export async function GET(request: NextRequest) {
       .limit(limit);
 
     if (q.length > 0) {
-      const safe = q.replace(/[%,()]/g, " ");
-      query = query.or(`name.ilike.%${safe}%,sku.ilike.%${safe}%,product_id.ilike.%${safe}%`);
+      const safe = q.replace(/[%_,().*]/g, " ").replace(/\s+/g, " ").trim();
+      if (safe) {
+        query = query.or(
+          `name.ilike.%${safe}%,sku.ilike.%${safe}%,product_id.ilike.%${safe}%`
+        );
+      }
     }
 
     const { data, error } = await query;
     if (error) {
-      console.error("[Commercial Simulator Products] error:", error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("[Commercial Simulator Products] error:", error.message);
+      return NextResponse.json({ error: "Internal server error" }, { status: 500 });
     }
 
     const items = (data ?? [])
@@ -63,7 +63,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ items });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }

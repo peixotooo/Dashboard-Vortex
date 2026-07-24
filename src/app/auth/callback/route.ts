@@ -5,7 +5,14 @@ export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
   const type = searchParams.get("type");
-  const next = searchParams.get("next") ?? "/";
+  const requestedNext = searchParams.get("next") ?? "/";
+  const next =
+    requestedNext.startsWith("/") &&
+    !requestedNext.startsWith("//") &&
+    !requestedNext.includes("\\") &&
+    requestedNext.length <= 1024
+      ? requestedNext
+      : "/";
 
   if (code) {
     const supabase = await createServerSupabaseClient();
@@ -13,13 +20,14 @@ export async function GET(request: NextRequest) {
     
     if (!error) {
       if (type === "recovery") {
-        return NextResponse.redirect(`${origin}/reset-password`);
+        return NextResponse.redirect(new URL("/reset-password", origin));
       }
-      return NextResponse.redirect(`${origin}${next}`);
+      return NextResponse.redirect(new URL(next, origin));
     }
   }
 
   // return the user to an error page with instructions
-  return NextResponse.redirect(`${origin}/login?error=O link de login expirou ou é inválido.`);
+  const loginUrl = new URL("/login", origin);
+  loginUrl.searchParams.set("error", "O link de login expirou ou é inválido.");
+  return NextResponse.redirect(loginUrl);
 }
-

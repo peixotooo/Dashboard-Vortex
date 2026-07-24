@@ -1,13 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { getPublicUrl } from "@/lib/b2-storage";
 import { getReviewSettings, DEFAULT_REVIEW_SETTINGS } from "@/lib/reviews/settings";
+import { sanitizeReviewMedia } from "@/lib/reviews/sanitize";
+import {
+  consumeSecurityRateLimit,
+  getRequestClientIp,
+} from "@/lib/security/rate-limit";
+import { readLimitedJson } from "@/lib/security/webhook-request";
 
 // Token reservado: renderiza a landing com dados de exemplo (sem tocar no banco)
 // pra o admin pré-visualizar. As configs reais vêm via ?ws=<workspaceId>.
 const PREVIEW_TOKEN = "preview";
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const REVIEW_TOKEN_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_BODY_BYTES = 64 * 1024;
+
 async function previewSettings(reqUrl: string) {
   const wsId = new URL(reqUrl).searchParams.get("ws");
-  return wsId ? await getReviewSettings(wsId) : { workspace_id: "", ...DEFAULT_REVIEW_SETTINGS };
+  return wsId && UUID_RE.test(wsId)
+    ? await getReviewSettings(wsId)
+    : { workspace_id: "", ...DEFAULT_REVIEW_SETTINGS };
 }
 
 export const runtime = "nodejs";
@@ -132,6 +147,18 @@ async function enrichProductsFromCatalog(
 // Dados da landing de coleta (público, identificado pelo token).
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
+  if (token !== PREVIEW_TOKEN && !REVIEW_TOKEN_RE.test(token)) {
+    return NextResponse.json({ error: "not_found" }, { status: 404, headers: CORS });
+  }
+
+  const rateLimit = await consumeSecurityRateLimit({
+    scope: "reviews:request:get",
+    key: `${token}:${getRequestClientIp(_req)}`,
+    limit: 120,
+  });
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: CORS });
+  }
 
   if (token === PREVIEW_TOKEN) {
     const settings = await previewSettings(_req.url);
@@ -186,7 +213,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: str
 
   return NextResponse.json(
     {
-      already_completed: req.status === "completed" || !!req.review_id,
+      already_completed:
+        req.status === "completed" || req.status === "submitting" || !!req.review_id,
       customer_name: firstName,
       product: {
         id: primaryProduct.id,
@@ -212,13 +240,39 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: str
 // Submissão da avaliação pela landing (token-scoped — não precisa de API key).
 export async function POST(request: NextRequest, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
+  if (token !== PREVIEW_TOKEN && !REVIEW_TOKEN_RE.test(token)) {
+    return NextResponse.json({ error: "not_found" }, { status: 404, headers: CORS });
+  }
+
+  const rateLimit = await consumeSecurityRateLimit({
+    scope: "reviews:request:post",
+    key: `${token}:${getRequestClientIp(request)}`,
+    limit: 20,
+  });
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: CORS });
+  }
+
+  const parsed = await readLimitedJson(request, MAX_BODY_BYTES);
+  if (!parsed.ok) {
+    return NextResponse.json(
+      { error: parsed.error },
+      { status: parsed.status, headers: CORS }
+    );
+  }
+  const body =
+    parsed.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+      ? (parsed.value as Record<string, unknown>)
+      : null;
+  if (!body) {
+    return NextResponse.json({ error: "JSON inválido" }, { status: 400, headers: CORS });
+  }
 
   // Pré-visualização: calcula a recompensa de forma fiel (mesma regra do fluxo
   // real) pra mostrar o estado de sucesso, mas NÃO grava nada no banco.
   if (token === PREVIEW_TOKEN) {
     const settings = await previewSettings(request.url);
-    let pbody: Record<string, unknown> = {};
-    try { pbody = await request.json(); } catch {}
+    const pbody = body;
     const previewAuthorName = typeof pbody.author_name === "string" ? pbody.author_name.trim() : "";
     if (!previewAuthorName) {
       return NextResponse.json({ error: "Preencha seu nome." }, { status: 400, headers: CORS });
@@ -262,15 +316,8 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
 
   const { admin, req } = await loadRequest(token);
   if (!req) return NextResponse.json({ error: "not_found" }, { status: 404, headers: CORS });
-  if (req.status === "completed" || req.review_id) {
+  if (req.status === "completed" || req.status === "submitting" || req.review_id) {
     return NextResponse.json({ error: "already_completed" }, { status: 409, headers: CORS });
-  }
-
-  let body: Record<string, unknown>;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "JSON inválido" }, { status: 400, headers: CORS });
   }
 
   const settings = await getReviewSettings(req.workspace_id);
@@ -288,19 +335,6 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
   const reqProducts = await enrichProductsFromCatalog(admin, req.workspace_id, reqProductsBase);
   const productById = new Map(reqProducts.map((p) => [String(p.product_id), p]));
 
-  function sanitizeMedia(raw: unknown) {
-    return Array.isArray(raw)
-      ? (raw as unknown[])
-          .map((m) => {
-            const it = m as { url?: unknown; type?: unknown };
-            const url = typeof it?.url === "string" ? it.url : "";
-            if (!/^https?:\/\//i.test(url)) return null;
-            return { url, type: it?.type === "video" ? "video" : "image" };
-          })
-          .filter(Boolean)
-          .slice(0, 8)
-      : [];
-  }
   function sanitizeFields(raw: unknown) {
     return Array.isArray(raw)
       ? (raw as unknown[])
@@ -334,8 +368,17 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
     const rating = Number(r.rating);
     const text = typeof r.body === "string" ? r.body.trim() : "";
     if (!Number.isFinite(rating) || rating < 1 || rating > 5) continue; // pula produto não avaliado
-    const media = sanitizeMedia(r.media);
-    const hasVideo = media.some((m) => m && (m as { type: string }).type === "video");
+    const sanitizedMedia = sanitizeReviewMedia(r.media);
+    let media = sanitizedMedia;
+    if (sanitizedMedia.length > 0) {
+      try {
+        const mediaPrefix = getPublicUrl(`reviews/${req.workspace_id}/`);
+        media = sanitizedMedia.filter(({ url }) => url.startsWith(mediaPrefix));
+      } catch {
+        media = [];
+      }
+    }
+    const hasVideo = media.some((m) => m.type === "video");
     const mediaKind = hasVideo ? "video" : media.length > 0 ? "photo" : "none";
     const adsConsent = mediaKind === "video" && r.ads_consent === true && settings.ads_enabled;
     const pid = r.product_id != null ? String(r.product_id) : (req.product_id || null);
@@ -386,12 +429,39 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
     return NextResponse.json({ error: "Avalie também a experiência com a loja." }, { status: 400, headers: CORS });
   }
 
+  const claimTime = new Date().toISOString();
+  const originalStatus = String(req.status || "sent");
+  const { data: claimed, error: claimError } = await admin
+    .from("review_requests")
+    .update({ status: "submitting", updated_at: claimTime })
+    .eq("id", req.id)
+    .eq("status", originalStatus)
+    .is("review_id", null)
+    .select("id")
+    .maybeSingle();
+  if (claimError) {
+    console.error("[reviews/request] claim failed:", claimError.message);
+    return NextResponse.json({ error: "submit_failed" }, { status: 500, headers: CORS });
+  }
+  if (!claimed) {
+    return NextResponse.json({ error: "already_completed" }, { status: 409, headers: CORS });
+  }
+
   const { data: inserted, error } = await admin.from("reviews").insert(rows).select("id");
-  if (error) return NextResponse.json({ error: error.message }, { status: 500, headers: CORS });
+  if (error) {
+    await admin
+      .from("review_requests")
+      .update({ status: originalStatus, updated_at: new Date().toISOString() })
+      .eq("id", req.id)
+      .eq("status", "submitting")
+      .is("review_id", null);
+    console.error("[reviews/request] review insert failed:", error.message);
+    return NextResponse.json({ error: "submit_failed" }, { status: 500, headers: CORS });
+  }
 
   // Avaliação da LOJA (experiência/entrega), separada das de produto. Uma por pedido (upsert).
   if (settings.collect_store_review && Number.isFinite(storeRating) && storeRating >= 1 && storeRating <= 5) {
-    await admin.from("store_reviews").upsert(
+    const { error: storeReviewError } = await admin.from("store_reviews").upsert(
       {
         workspace_id: req.workspace_id,
         order_id: req.order_id,
@@ -406,12 +476,20 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
       },
       { onConflict: "workspace_id,order_id" }
     );
+    if (storeReviewError) {
+      console.error("[reviews/request] store review failed:", storeReviewError.message);
+    }
   }
 
-  await admin
+  const { error: completeError } = await admin
     .from("review_requests")
     .update({ status: "completed", completed_at: new Date().toISOString(), review_id: inserted?.[0]?.id ?? null, updated_at: new Date().toISOString() })
-    .eq("id", req.id);
+    .eq("id", req.id)
+    .eq("status", "submitting");
+  if (completeError) {
+    console.error("[reviews/request] completion failed:", completeError.message);
+    return NextResponse.json({ error: "submit_failed" }, { status: 500, headers: CORS });
+  }
 
   // Revela a recompensa (surpresa) só agora — UMA por pedido, conforme a melhor
   // mídia enviada. Pode subir pro valor de ADS se a loja selecionar o vídeo

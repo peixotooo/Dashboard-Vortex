@@ -5,48 +5,59 @@
 // A mensagem tem que pertencer àquela conversa e ser role='assistant'.
 
 import { NextRequest, NextResponse } from "next/server";
-import { buildCorsHeaders } from "@/lib/cors";
+import { getStorefrontCors } from "@/lib/cors";
 import { validateApiKey } from "@/lib/shelves/api-key";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { hashIp } from "@/lib/assistant/guardrails";
 import { checkIpRateLimit } from "@/lib/assistant/rate-limit";
+import { getRequestClientIp } from "@/lib/security/rate-limit";
+import { readLimitedJson } from "@/lib/security/webhook-request";
 
 export const runtime = "nodejs";
 export const maxDuration = 10;
+const MAX_BODY_BYTES = 8 * 1024;
 
 function json(
-  request: NextRequest,
+  headers: Record<string, string>,
   status: number,
   body: Record<string, unknown>
 ): NextResponse {
-  return NextResponse.json(body, { status, headers: buildCorsHeaders(request) });
+  return NextResponse.json(body, { status, headers });
 }
 
 export async function OPTIONS(request: NextRequest) {
+  const cors = await getStorefrontCors(request);
   return new NextResponse(null, {
-    status: 204,
-    headers: { ...buildCorsHeaders(request), "Access-Control-Max-Age": "86400" },
+    status: cors.allowed ? 204 : 403,
+    headers: { ...cors.headers, "Access-Control-Max-Age": "86400" },
   });
 }
 
 export async function POST(request: NextRequest) {
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return json(request, 400, { ok: false });
+  let corsResult = await getStorefrontCors(request);
+  let cors = corsResult.headers;
+  if (!corsResult.allowed) {
+    return json(cors, 403, { ok: false });
   }
 
-  const auth = await validateApiKey(typeof body.key === "string" ? body.key : null);
-  if (!auth) return json(request, 401, { ok: false });
+  const parsed = await readLimitedJson(request, MAX_BODY_BYTES);
+  if (!parsed.ok) return json(cors, parsed.status, { ok: false });
+  const body =
+    parsed.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+      ? (parsed.value as Record<string, unknown>)
+      : {};
 
-  // x-real-ip primeiro (setado pela Vercel, não-spoofável); o primeiro valor
-  // do x-forwarded-for é controlado pelo cliente — usa o ÚLTIMO como fallback
-  const ip =
-    request.headers.get("x-real-ip")?.trim() ||
-    request.headers.get("x-forwarded-for")?.split(",").pop()?.trim() ||
-    "unknown";
-  if (!checkIpRateLimit(hashIp(ip))) return json(request, 429, { ok: false });
+  const auth = await validateApiKey(typeof body.key === "string" ? body.key : null);
+  if (!auth) return json(cors, 401, { ok: false });
+
+  corsResult = await getStorefrontCors(request, auth.workspaceId);
+  cors = corsResult.headers;
+  if (!corsResult.allowed) return json(cors, 403, { ok: false });
+
+  const ip = getRequestClientIp(request);
+  if (!(await checkIpRateLimit(hashIp(ip)))) {
+    return json(cors, 429, { ok: false });
+  }
 
   const sessionKey =
     typeof body.session_id === "string" && /^[\w-]{16,64}$/.test(body.session_id)
@@ -56,7 +67,7 @@ export async function POST(request: NextRequest) {
   const rating = body.rating === 1 || body.rating === -1 ? body.rating : null;
 
   if (!sessionKey || !Number.isInteger(messageId) || messageId <= 0 || rating === null) {
-    return json(request, 400, { ok: false });
+    return json(cors, 400, { ok: false });
   }
 
   const admin = createAdminClient();
@@ -68,7 +79,7 @@ export async function POST(request: NextRequest) {
     .eq("workspace_id", auth.workspaceId)
     .eq("session_key", sessionKey)
     .maybeSingle();
-  if (!conv) return json(request, 404, { ok: false });
+  if (!conv) return json(cors, 404, { ok: false });
 
   // ...e a mensagem precisa ser DESTA conversa e ser resposta do assistente
   const { error } = await admin
@@ -81,8 +92,8 @@ export async function POST(request: NextRequest) {
   if (error) {
     // Coluna ainda não existe (migration-129 pendente) → não quebra o widget
     console.warn("[assistant/feedback] update falhou:", error.message);
-    return json(request, 200, { ok: false });
+    return json(cors, 200, { ok: false });
   }
 
-  return json(request, 200, { ok: true });
+  return json(cors, 200, { ok: true });
 }

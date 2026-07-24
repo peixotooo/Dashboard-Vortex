@@ -24,6 +24,8 @@
 // get rewritten. mailto:, tel:, anchors, and external links (Instagram, etc.)
 // are left alone.
 
+import sanitizeHtml from "sanitize-html";
+
 const DEFAULT_TRACKED_HOSTS = [
   "bulking.com.br",
   "www.bulking.com.br",
@@ -224,7 +226,7 @@ export function wrapUnlinkedImages(html: string, homeUrl?: string): string {
  */
 export function sanitizeEmailHtml(html: string): string {
   if (!html) return html;
-  return applyResponsiveEmailSafety(
+  const compatibleHtml = applyResponsiveEmailSafety(
     stripBrokenUnsubscribe(
       unwrapAspectRatioImages(
         html
@@ -233,6 +235,90 @@ export function sanitizeEmailHtml(html: string): string {
       )
     )
   );
+  return sanitizeEmailMarkup(compatibleHtml);
+}
+
+const EMAIL_ALLOWED_TAGS = [
+  "html", "head", "body", "title", "meta", "link", "style",
+  "div", "span", "p", "a", "img", "br", "hr",
+  "table", "thead", "tbody", "tfoot", "tr", "td", "th", "caption",
+  "colgroup", "col",
+  "h1", "h2", "h3", "h4", "h5", "h6",
+  "strong", "b", "em", "i", "u", "s", "small", "sub", "sup",
+  "blockquote", "pre", "code", "ul", "ol", "li", "center", "font",
+  "section", "header", "footer",
+];
+
+function stripUnsafeEmailCss(html: string): string {
+  return html
+    .replace(/@import\s+[^;]+;?/gi, "")
+    .replace(/expression\s*\([^)]*\)/gi, "")
+    .replace(/url\s*\(\s*(['"]?)\s*(?:javascript|data:text\/html)[^)]*\)/gi, "")
+    .replace(/(?:behavior|-moz-binding)\s*:[^;"']+;?/gi, "");
+}
+
+function sanitizeEmailMarkup(html: string): string {
+  return sanitizeHtml(stripUnsafeEmailCss(html), {
+    allowedTags: EMAIL_ALLOWED_TAGS,
+    allowedAttributes: {
+      "*": [
+        "class", "id", "style", "title", "role", "dir", "lang",
+        "aria-*", "data-*",
+      ],
+      html: ["xmlns"],
+      meta: ["charset", "name", "content"],
+      link: ["href", "rel", "type", "media"],
+      a: ["href", "target", "rel", "name"],
+      img: [
+        "src", "srcset", "sizes", "alt", "width", "height", "border", "align",
+      ],
+      table: [
+        "align", "bgcolor", "border", "cellpadding", "cellspacing", "width",
+        "height",
+      ],
+      tr: ["align", "valign", "bgcolor", "height"],
+      td: [
+        "align", "valign", "bgcolor", "colspan", "rowspan", "width", "height",
+      ],
+      th: [
+        "align", "valign", "bgcolor", "colspan", "rowspan", "width", "height",
+      ],
+      col: ["span", "width"],
+      font: ["color", "face", "size"],
+      ol: ["start", "type"],
+      li: ["value"],
+      blockquote: ["cite"],
+    },
+    allowedSchemes: ["http", "https", "mailto", "tel", "cid"],
+    allowedSchemesByTag: {
+      img: ["http", "https", "cid", "data"],
+      a: ["http", "https", "mailto", "tel"],
+      link: ["http", "https"],
+    },
+    allowProtocolRelative: false,
+    allowVulnerableTags: true,
+    transformTags: {
+      "*": (tagName, attributes) => {
+        const next = { ...attributes };
+        if (
+          next.style &&
+          /(?:expression\s*\(|url\s*\(\s*['"]?\s*(?:javascript|data:text\/html)|behavior\s*:|-moz-binding\s*:)/i.test(
+            next.style
+          )
+        ) {
+          delete next.style;
+        }
+        return { tagName, attribs: next };
+      },
+      a: (tagName, attributes) => ({
+        tagName,
+        attribs: {
+          ...attributes,
+          rel: "noopener noreferrer",
+        },
+      }),
+    },
+  });
 }
 
 function applyResponsiveEmailSafety(html: string): string {

@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase-admin";
+import {
+  consumeSecurityRateLimit,
+  getRequestClientIp,
+} from "@/lib/security/rate-limit";
+import {
+  readLimitedText,
+  secretsEqual,
+} from "@/lib/security/webhook-request";
 
 export const maxDuration = 30;
+const MAX_WEBHOOK_BYTES = 1_000_000;
 
 // GET = Meta webhook verification (challenge)
 export async function GET(request: NextRequest) {
@@ -15,7 +24,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Webhook verify token not configured" }, { status: 503 });
   }
 
-  if (mode === "subscribe" && token === verifyToken) {
+  if (
+    mode === "subscribe" &&
+    token &&
+    secretsEqual(token, verifyToken)
+  ) {
     return new NextResponse(challenge, { status: 200 });
   }
 
@@ -37,31 +50,82 @@ function verifyMetaSignature(rawBody: string, signature: string | null): boolean
 // POST = Meta webhook status updates
 export async function POST(request: NextRequest) {
   try {
-    const rawBody = await request.text();
+    const clientIp = getRequestClientIp(request);
+    const rate = await consumeSecurityRateLimit({
+      scope: "whatsapp:status-webhook",
+      key: clientIp,
+      limit: 300,
+      windowSeconds: 60,
+    });
+    if (!rate.allowed) return NextResponse.json({ ok: true });
+
+    const limited = await readLimitedText(request, MAX_WEBHOOK_BYTES);
+    if (!limited.ok) return NextResponse.json({ ok: true });
+    const rawBody = limited.value;
     if (!verifyMetaSignature(rawBody, request.headers.get("x-hub-signature-256"))) {
       return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
     }
 
-    const body = JSON.parse(rawBody);
+    const body = JSON.parse(rawBody) as Record<string, unknown>;
+    if (
+      body.object !== "whatsapp_business_account" ||
+      !Array.isArray(body.entry)
+    ) {
+      return NextResponse.json({ ok: true });
+    }
     const admin = createAdminClient();
 
     // Meta sends: { object: "whatsapp_business_account", entry: [...] }
-    const entries = body.entry || [];
+    const entries = body.entry.slice(0, 100);
 
     for (const entry of entries) {
-      const changes = entry.changes || [];
+      if (!entry || typeof entry !== "object") continue;
+      const changes = Array.isArray(
+        (entry as { changes?: unknown }).changes
+      )
+        ? (entry as { changes: unknown[] }).changes.slice(0, 100)
+        : [];
       for (const change of changes) {
-        if (change.field !== "messages") continue;
-        const statuses = change.value?.statuses || [];
+        if (!change || typeof change !== "object") continue;
+        const typedChange = change as {
+          field?: unknown;
+          value?: { statuses?: unknown };
+        };
+        if (typedChange.field !== "messages") continue;
+        const statuses = Array.isArray(typedChange.value?.statuses)
+          ? typedChange.value.statuses.slice(0, 500)
+          : [];
 
         for (const s of statuses) {
-          const metaMessageId = s.id;
-          const status = s.status; // sent, delivered, read, failed
-          const timestamp = s.timestamp
-            ? new Date(parseInt(s.timestamp) * 1000).toISOString()
+          if (!s || typeof s !== "object") continue;
+          const typedStatus = s as {
+            id?: unknown;
+            status?: unknown;
+            timestamp?: unknown;
+            errors?: Array<{ title?: unknown }>;
+          };
+          const metaMessageId =
+            typeof typedStatus.id === "string" &&
+            /^[a-zA-Z0-9._:-]{5,300}$/.test(typedStatus.id)
+              ? typedStatus.id
+              : "";
+          const status =
+            typeof typedStatus.status === "string"
+              ? typedStatus.status
+              : "";
+          if (
+            !metaMessageId ||
+            !["sent", "delivered", "read", "failed"].includes(status)
+          ) {
+            continue;
+          }
+          const timestampValue =
+            typeof typedStatus.timestamp === "string"
+              ? Number.parseInt(typedStatus.timestamp, 10)
+              : NaN;
+          const timestamp = Number.isFinite(timestampValue)
+            ? new Date(timestampValue * 1000).toISOString()
             : new Date().toISOString();
-
-          if (!metaMessageId || !status) continue;
 
           // Update message status
           const updates: Record<string, unknown> = { status };
@@ -69,7 +133,11 @@ export async function POST(request: NextRequest) {
           if (status === "delivered") updates.delivered_at = timestamp;
           if (status === "read") updates.read_at = timestamp;
           if (status === "failed") {
-            updates.error_message = s.errors?.[0]?.title || "Unknown error";
+            const title = typedStatus.errors?.[0]?.title;
+            updates.error_message =
+              typeof title === "string"
+                ? title.slice(0, 500)
+                : "Unknown error";
           }
 
           const { data: msg } = await admin

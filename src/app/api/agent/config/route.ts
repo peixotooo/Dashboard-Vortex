@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { getWorkspaceContext, handleAuthError, AuthError } from "@/lib/api-auth";
+import {
+  getWorkspaceAdminContext,
+  getWorkspaceContext,
+  handleAuthError,
+  AuthError,
+} from "@/lib/api-auth";
 import { loadDocument, upsertDocument, loadAgentDocument, upsertAgentDocument } from "@/lib/agent/memory";
+import { readLimitedJson } from "@/lib/security/webhook-request";
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -21,12 +30,16 @@ function createSupabase(request: NextRequest) {
 // GET /api/agent/config?doc_type=soul  (or omit for all 3)
 export async function GET(request: NextRequest) {
   try {
-    const { workspaceId } = await getWorkspaceContext(request);
+    const requestUrl = new URL(request.url);
+    const docType = requestUrl.searchParams.get("doc_type") as string | null;
+    const { workspaceId } =
+      docType === "provider_config"
+        ? await getWorkspaceAdminContext(request)
+        : await getWorkspaceContext(request);
     const supabase = createSupabase(request);
 
-    const accountId = new URL(request.url).searchParams.get("account_id") || "";
-    const docType = new URL(request.url).searchParams.get("doc_type") as string | null;
-    const agentId = new URL(request.url).searchParams.get("agent_id");
+    const accountId = requestUrl.searchParams.get("account_id") || "";
+    const agentId = requestUrl.searchParams.get("agent_id");
     const validDocTypes = ["soul", "agent_rules", "user_profile", "project_context", "provider_config"] as const;
 
     // Team agent mode — only soul + agent_rules
@@ -96,10 +109,26 @@ export async function PUT(request: NextRequest) {
     const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
 
-    const body = await request.json();
-    const { doc_type, content, agent_id } = body as { doc_type: string; content: string; agent_id?: string };
+    const parsed = await readLimitedJson(request, 256 * 1024);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    }
+    if (!parsed.value || typeof parsed.value !== "object" || Array.isArray(parsed.value)) {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+    const { doc_type, content, agent_id } = parsed.value as {
+      doc_type?: unknown;
+      content?: unknown;
+      agent_id?: unknown;
+    };
 
-    if (!doc_type || content === undefined) {
+    if (
+      typeof doc_type !== "string" ||
+      typeof content !== "string" ||
+      content.length > 200_000 ||
+      (agent_id !== undefined &&
+        (typeof agent_id !== "string" || !UUID_RE.test(agent_id)))
+    ) {
       return NextResponse.json({ error: "doc_type and content are required" }, { status: 400 });
     }
 
@@ -120,6 +149,35 @@ export async function PUT(request: NextRequest) {
 
     // provider_config: workspace-global upsert
     if (doc_type === "provider_config") {
+      await getWorkspaceAdminContext(request);
+      try {
+        const providerConfig = JSON.parse(content) as {
+          provider?: unknown;
+          allowedModels?: unknown;
+        };
+        if (
+          (providerConfig.provider !== "anthropic" &&
+            providerConfig.provider !== "openrouter") ||
+          (providerConfig.allowedModels !== undefined &&
+            (!Array.isArray(providerConfig.allowedModels) ||
+              providerConfig.allowedModels.length > 100 ||
+              providerConfig.allowedModels.some(
+                (model) =>
+                  typeof model !== "string" ||
+                  !/^[a-z0-9._*:/-]{1,160}$/i.test(model)
+              )))
+        ) {
+          return NextResponse.json(
+            { error: "Invalid provider_config" },
+            { status: 400 }
+          );
+        }
+      } catch {
+        return NextResponse.json(
+          { error: "Invalid provider_config" },
+          { status: 400 }
+        );
+      }
       const { data: existing } = await supabase
         .from("agent_documents")
         .select("id")

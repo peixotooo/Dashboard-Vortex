@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "async_hooks";
 
 const API_VERSION = process.env.META_API_VERSION || "v23.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
+const GRAPH_ORIGIN = "https://graph.facebook.com";
 
 // Token resolution order: request-scoped (AsyncLocalStorage) -> module global.
 // The async-local store keeps per-account tokens isolated under
@@ -32,6 +33,19 @@ function getToken(): string {
   if (scoped) return scoped;
   if (_contextToken) return _contextToken;
   throw new Error("No Meta access token configured for this request");
+}
+
+async function fetchGraphPage(rawUrl: string): Promise<Response> {
+  const url = new URL(rawUrl);
+  if (
+    url.origin !== GRAPH_ORIGIN ||
+    url.username ||
+    url.password ||
+    url.port
+  ) {
+    throw new Error("Meta returned an invalid pagination URL");
+  }
+  return fetch(url.toString(), { redirect: "error" });
 }
 
 async function graphRequest(
@@ -603,12 +617,14 @@ export async function getInsights(args: {
 
   // Follow pagination to ensure all data is fetched (critical for longer periods like 90d)
   let nextUrl = result.paging?.next;
-  while (nextUrl) {
-    const res = await fetch(nextUrl);
+  let pageCount = 0;
+  while (nextUrl && pageCount < 100) {
+    const res = await fetchGraphPage(nextUrl);
     const pageData = await res.json();
     if (pageData.error) break;
     allInsights = [...allInsights, ...(pageData.data || [])];
     nextUrl = pageData.paging?.next;
+    pageCount += 1;
   }
 
   return { insights: allInsights };
@@ -1001,12 +1017,14 @@ export async function getActiveAdsWithCreatives(args: {
     const result = firstPage as { data?: unknown[]; paging?: { next?: string } };
     let allAds = result.data || [];
     let nextUrl = result.paging?.next;
-    while (nextUrl) {
-      const res = await fetch(nextUrl);
+    let pageCount = 0;
+    while (nextUrl && pageCount < 100) {
+      const res = await fetchGraphPage(nextUrl);
       const page = await res.json();
       if (page.error) break;
       allAds = [...allAds, ...(page.data || [])];
       nextUrl = page.paging?.next;
+      pageCount += 1;
     }
     return allAds;
   })();
@@ -1199,12 +1217,14 @@ export async function getCampaignsWithMetrics(args: {
 
   // Follow pagination
   let nextUrl = insightResult.paging?.next;
-  while (nextUrl) {
-    const res = await fetch(nextUrl);
+  let pageCount = 0;
+  while (nextUrl && pageCount < 100) {
+    const res = await fetchGraphPage(nextUrl);
     const pageData = await res.json();
     if (pageData.error) break;
     allInsights = [...allInsights, ...(pageData.data || [])];
     nextUrl = pageData.paging?.next;
+    pageCount += 1;
   }
 
   // Build insights map by campaign_id
@@ -1318,7 +1338,7 @@ export async function getAccountActivities(args: {
   const MAX_PAGES = 10;
   let pageCount = 0;
   while (nextUrl && pageCount < MAX_PAGES) {
-    const res = await fetch(nextUrl);
+    const res = await fetchGraphPage(nextUrl);
     const pageData = await res.json();
     if (pageData.error) break;
     allActivities = [...allActivities, ...(pageData.data || [])];

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateApiKey } from "@/lib/shelves/api-key";
 import { computePromoTagMatches } from "@/lib/promo-tags/matcher";
+import {
+  consumeSecurityRateLimit,
+  getRequestClientIp,
+} from "@/lib/security/rate-limit";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -11,6 +15,19 @@ const CORS_HEADERS = {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const key = searchParams.get("key");
+  const ip = getRequestClientIp(request);
+
+  const ingress = await consumeSecurityRateLimit({
+    scope: "promo-tags:products:ingress",
+    key: ip,
+    limit: 240,
+  });
+  if (!ingress.allowed) {
+    return NextResponse.json(
+      { error: "Rate limit exceeded" },
+      { status: 429, headers: CORS_HEADERS }
+    );
+  }
 
   const auth = await validateApiKey(key);
   if (!auth) {
@@ -21,6 +38,18 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const workspaceLimit = await consumeSecurityRateLimit({
+      scope: "promo-tags:products:workspace",
+      key: `${auth.workspaceId}:${ip}`,
+      limit: 120,
+    });
+    if (!workspaceLimit.allowed) {
+      return NextResponse.json(
+        { error: "Rate limit exceeded" },
+        { status: 429, headers: CORS_HEADERS }
+      );
+    }
+
     const payload = await computePromoTagMatches(auth.workspaceId);
 
     return NextResponse.json(payload, {
@@ -31,7 +60,10 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("[PromoTags Products]", error);
+    console.error(
+      "[PromoTags Products]",
+      error instanceof Error ? error.message : "compute_failed"
+    );
     return NextResponse.json(
       { error: "Internal error" },
       { status: 500, headers: CORS_HEADERS }

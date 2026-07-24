@@ -10,7 +10,11 @@
 // Assim nem prompt injection consegue extrair o que o modelo não viu.
 
 import { createAdminClient } from "@/lib/supabase-admin";
-import { getVndaConfigAdmin, type VndaConfig } from "@/lib/vnda-api";
+import {
+  fetchVndaApiUrl,
+  getVndaConfigAdmin,
+  type VndaConfig,
+} from "@/lib/vnda-api";
 import type {
   AssistantProductDetails,
   AssistantProductSummary,
@@ -518,7 +522,8 @@ function extractImages(raw: unknown): string[] {
 // endpoint que o catalog-sync usa pra montar a galeria do shelf. Dado público.
 async function fetchProductImages(config: VndaConfig, productId: string): Promise<string[]> {
   try {
-    const res = await fetch(
+    const res = await fetchVndaApiUrl(
+      config,
       `https://api.vnda.com.br/api/v2/products/${encodeURIComponent(productId)}/images`,
       {
         headers: {
@@ -552,7 +557,7 @@ async function fetchProductDetail(
 
   for (const url of urls) {
     try {
-      const res = await fetch(url, {
+      const res = await fetchVndaApiUrl(config, url, {
         headers: url.includes("api.vnda.com.br")
           ? { ...headers, "X-Shop-Host": config.storeHost }
           : headers,

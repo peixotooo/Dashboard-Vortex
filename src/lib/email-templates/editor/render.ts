@@ -239,11 +239,11 @@ function buildEditorScript(mode: "light" | "dark"): string {
     try{parent.postMessage({type:'block:select',id:t.getAttribute('data-block-id')},'*');}catch(err){}
   },true);
   window.addEventListener('message',function(e){
-    if(!e.data||e.data.type!=='block:set-selected')return;
+    if(e.source!==parent||!e.data||e.data.type!=='block:set-selected')return;
     clear();
     var id=e.data.id;
-    if(!id)return;
-    var nodes=document.querySelectorAll('[data-block-id="'+id+'"]');
+    if(typeof id!=='string'||!/^[\\w.-]{1,128}$/.test(id))return;
+    var nodes=Array.prototype.filter.call(document.querySelectorAll('[data-block-id]'),function(n){return n.getAttribute('data-block-id')===id;});
     if(nodes.length===0)return;
     sel=nodes[0];
     nodes.forEach(function(n){n.style.outline='${selected}';n.style.outlineOffset='-2px';});

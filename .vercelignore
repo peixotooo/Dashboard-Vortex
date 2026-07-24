@@ -2,6 +2,7 @@
 .next
 .turbo
 node_modules
+.env*
 
 .agents
 .claude
@@ -12,6 +13,7 @@ reports
 docs/*.md
 
 public/*.zip
+public/*.csv
 public/Motivacionais
 public/ChatGPT Image*
 public/relatorio_*.csv

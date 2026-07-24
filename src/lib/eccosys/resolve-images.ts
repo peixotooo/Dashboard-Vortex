@@ -1,3 +1,5 @@
+import { fetchPublicHttpUrl } from "@/lib/security/external-url";
+
 /**
  * Resolve Eccosys image URLs that do 302 redirects (with PHPSESSID cookie)
  * to their final CDN URLs. ML and other services can't follow these redirects.
@@ -11,27 +13,26 @@ export async function resolveEccosysImageUrls(
   for (const url of urls) {
     if (!url) continue;
     try {
+      const parsed = new URL(url);
+      const hostname = parsed.hostname.toLowerCase();
       const isEccosysRedirect =
-        url.includes("eccosys.com.br") && !url.includes("cdn.eccosys.com.br");
+        parsed.protocol === "https:" &&
+        (hostname === "eccosys.com.br" ||
+          hostname.endsWith(".eccosys.com.br")) &&
+        hostname !== "cdn.eccosys.com.br";
       if (!isEccosysRedirect) {
         resolved.push(url);
         continue;
       }
-      // Follow redirect chain manually (max 2 hops)
-      const res = await fetch(url, { method: "HEAD", redirect: "manual" });
-      const location = res.headers.get("location");
-      if (location) {
-        const res2 = await fetch(location, {
-          method: "HEAD",
-          redirect: "manual",
-        });
-        const location2 = res2.headers.get("location");
-        resolved.push(location2 || location);
-      } else if (res.ok) {
-        resolved.push(url);
-      } else {
-        resolved.push(url);
-      }
+      const response = await fetchPublicHttpUrl(
+        parsed.toString(),
+        { method: "HEAD", signal: AbortSignal.timeout(8000) },
+        {
+          label: "Eccosys image",
+          maxRedirects: 2,
+        }
+      );
+      resolved.push(response.ok && response.url ? response.url : url);
     } catch {
       resolved.push(url);
     }

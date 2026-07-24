@@ -169,17 +169,19 @@ export async function POST(
         const r = results[i];
         const email = emails[i];
         if (r.status === "fulfilled") {
-          console.log(
-            `[draft test-dispatch iporto] ${email} → response:`,
-            JSON.stringify(r.value).slice(0, 500)
-          );
           responses.push({ email, body: r.value });
           const mid = extractMessageId(r.value);
           if (mid) messageIds.push(mid);
+          console.log(
+            `[draft test-dispatch iporto] recipient ${i + 1} accepted${mid ? `, message_id=${mid}` : ""}`
+          );
         } else {
           const e = r.reason as { message?: string };
           const msg = e?.message ?? "erro desconhecido";
-          console.error(`[draft test-dispatch iporto] ${email} → erro:`, msg);
+          console.error(
+            `[draft test-dispatch iporto] recipient ${i + 1} failed:`,
+            msg
+          );
           errors.push(msg);
         }
       }

@@ -28,6 +28,7 @@ import {
   getMedusaNews,
   getMedusaOffers,
 } from "@/lib/shelves/medusa-algorithms";
+import { readPublicUrlBuffer } from "@/lib/security/external-url";
 
 // --- Types ---
 
@@ -171,22 +172,17 @@ async function fetchProductImagesFromVnda(
 async function fetchProductHoverImageFromHtml(product: ShelfProduct): Promise<string | null> {
   if (!product.product_url) return null;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 2500);
-
   try {
-    const res = await fetch(product.product_url, {
-      headers: { "User-Agent": "Mozilla/5.0 VortexShelves/1.0" },
-      signal: controller.signal,
+    const { buffer } = await readPublicUrlBuffer(product.product_url, {
+      label: "storefront product",
+      maxBytes: 2 * 1024 * 1024,
+      allowedContentTypes: /^(?:text\/html|application\/xhtml\+xml)(?:;|$)/i,
+      timeoutMs: 2500,
     });
-    if (!res.ok) return null;
-
-    const html = await res.text();
+    const html = buffer.toString("utf8");
     return extractHoverImageFromProductHtml(html, product.name, product.image_url);
   } catch {
     return null;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 

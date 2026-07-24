@@ -14,20 +14,39 @@ import { dispatchVndaPurchaseToCapi } from "@/lib/meta-capi-vnda";
 import { syncCustomerToAutoSegmentLists } from "@/lib/segments/sync";
 import { normalizeBrazilianWhatsAppPhone } from "@/lib/phone";
 import { recordAssistantWebhookOrder } from "@/lib/assistant/attribution";
+import {
+  consumeSecurityRateLimit,
+  getRequestClientIp,
+} from "@/lib/security/rate-limit";
+import {
+  getWebhookSecret,
+  readLimitedJson,
+} from "@/lib/security/webhook-request";
 
 export const maxDuration = 30;
+const MAX_WEBHOOK_BYTES = 2 * 1024 * 1024;
 
 const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T | null> =>
   Promise.race([p, new Promise<null>((r) => setTimeout(() => r(null), ms))]);
 
 export async function POST(request: NextRequest) {
-  const token = request.nextUrl.searchParams.get("token");
+  const token = getWebhookSecret(request);
 
   if (!token) {
     return NextResponse.json(
       { error: "Missing token parameter" },
       { status: 401 }
     );
+  }
+
+  const rateLimit = await consumeSecurityRateLimit({
+    scope: "webhook:vnda:orders",
+    key: `${getRequestClientIp(request)}:${token}`,
+    limit: 300,
+    windowSeconds: 60,
+  });
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ ok: false, reason: "rate_limited" });
   }
 
   const admin = createAdminClient();
@@ -63,13 +82,15 @@ export async function POST(request: NextRequest) {
   const storeHost =
     (connection as { store_host?: string | null }).store_host ?? null;
 
-  let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch {
+  const parsedBody = await readLimitedJson(request, MAX_WEBHOOK_BYTES);
+  if (!parsedBody.ok) {
     await logWebhook(admin, workspaceId, null, "error", null, "Invalid JSON body");
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    return NextResponse.json(
+      { error: parsedBody.error },
+      { status: parsedBody.status }
+    );
   }
+  const payload = parsedBody.value;
 
   if (!validateWebhookPayload(payload)) {
     console.warn(`[VNDA Webhook] Validation failed for workspace ${workspaceId}: missing id, email, or total`);
@@ -161,7 +182,12 @@ export async function POST(request: NextRequest) {
     // certo mas mesmo telefone). Isolado pra que qualquer erro aqui não
     // derrube o webhook.
     try {
-      const email = (payload.email || "").toLowerCase().trim();
+      const rawEmail = (payload.email || "").toLowerCase().trim();
+      const email =
+        rawEmail.length <= 320 &&
+        /^[^\s,()]+@[^\s,()]+\.[^\s,()]+$/.test(rawEmail)
+          ? rawEmail
+          : "";
       const rawPhone =
         (payload.cellphone &&
           `${payload.cellphone_area || ""}${payload.cellphone}`) ||
@@ -173,9 +199,16 @@ export async function POST(request: NextRequest) {
       const phone = normalizeBrazilianWhatsAppPhone(rawPhone) || "";
 
       const orParts: string[] = [];
-      if (email) orParts.push(`customer_email.eq.${email}`);
-      if (phone) orParts.push(`customer_phone.eq.${phone}`);
-      if (rawPhoneDigits && rawPhoneDigits !== phone) {
+      if (email && /^[a-z0-9@+._-]{1,254}$/i.test(email)) {
+        orParts.push(`customer_email.eq.${email}`);
+      }
+      if (phone && /^\+?\d{8,20}$/.test(phone)) {
+        orParts.push(`customer_phone.eq.${phone}`);
+      }
+      if (
+        /^\d{8,20}$/.test(rawPhoneDigits) &&
+        rawPhoneDigits !== phone
+      ) {
         orParts.push(`customer_phone.eq.${rawPhoneDigits}`);
       }
 
@@ -198,14 +231,14 @@ export async function POST(request: NextRequest) {
           );
         } else if (closed && closed.length > 0) {
           console.log(
-            `[VNDA Webhook] Closed ${closed.length} cart(s) for order ${orderId} (match: email=${email || "—"}, phone=${phone || "—"})`
+            `[VNDA Webhook] Closed ${closed.length} cart(s) for order ${orderId}`
           );
         }
       }
     } catch (cartErr) {
       console.error(
         `[VNDA Webhook] Cart recovery close failed for order ${orderId}:`,
-        cartErr instanceof Error ? cartErr.message : cartErr
+        cartErr instanceof Error ? cartErr.message : "cart_close_failed"
       );
     }
 
@@ -308,16 +341,18 @@ export async function POST(request: NextRequest) {
     } catch (attrErr) {
       console.error(
         `[VNDA Webhook] Chat attribution update failed for order ${orderId}:`,
-        attrErr instanceof Error ? attrErr.message : attrErr
+        attrErr instanceof Error ? attrErr.message : "attribution_failed"
       );
     }
 
     return NextResponse.json({ ok: true, status: "created" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    const details = err && typeof err === "object" ? JSON.stringify(err) : message;
-    console.error(`[VNDA Webhook] Error processing order ${orderId} for workspace ${workspaceId}:`, message, err);
-    await logWebhook(admin, workspaceId, orderId, "error", payload, details);
+    console.error(
+      `[VNDA Webhook] Error processing order ${orderId} for workspace ${workspaceId}:`,
+      message
+    );
+    await logWebhook(admin, workspaceId, orderId, "error", payload, message.slice(0, 500));
     // Return 200 to prevent aggressive retries from VNDA
     return NextResponse.json({ ok: false, reason: "processing_error", error: message });
   }

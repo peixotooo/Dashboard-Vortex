@@ -1,11 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
+import {
+  consumeSecurityRateLimit,
+  getRequestClientIp,
+} from "@/lib/security/rate-limit";
+import { readLimitedJson } from "@/lib/security/webhook-request";
+
+const TOKEN_RE = /^[a-f0-9]{64}$/i;
+const MAX_BODY_BYTES = 16 * 1024;
 
 // GET /api/invite?token=xxx — Validate invitation token
 export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get("token");
-  if (!token) {
-    return NextResponse.json({ valid: false, error: "Token ausente" }, { status: 400 });
+  if (!token || !TOKEN_RE.test(token)) {
+    return NextResponse.json({ valid: false, error: "Convite nao encontrado" }, { status: 404 });
+  }
+
+  const rateLimit = await consumeSecurityRateLimit({
+    scope: "invite:lookup",
+    key: `${token}:${getRequestClientIp(request)}`,
+    limit: 60,
+  });
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ valid: false, error: "Muitas tentativas" }, { status: 429 });
   }
 
   const supabase = createAdminClient();
@@ -29,8 +46,12 @@ export async function GET(request: NextRequest) {
   }
 
   // Check if email already has an account
-  const { data: existingUser } = await supabase.auth.admin.listUsers();
-  const hasAccount = existingUser?.users?.some((u) => u.email === invitation.email) ?? false;
+  const { data: existingProfile } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("email", String(invitation.email).toLowerCase())
+    .maybeSingle();
+  const hasAccount = Boolean(existingProfile);
 
   const workspace = invitation.workspace as unknown as { name: string } | null;
 
@@ -45,11 +66,32 @@ export async function GET(request: NextRequest) {
 // POST /api/invite — Accept invitation (create account if needed + add to workspace)
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { token, full_name, password } = body;
+    const parsed = await readLimitedJson(request, MAX_BODY_BYTES);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    }
+    const body =
+      parsed.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+        ? (parsed.value as Record<string, unknown>)
+        : {};
+    const token = typeof body.token === "string" ? body.token : "";
+    const fullName =
+      typeof body.full_name === "string"
+        ? body.full_name.trim().slice(0, 120)
+        : "";
+    const password = typeof body.password === "string" ? body.password : "";
 
-    if (!token) {
-      return NextResponse.json({ error: "Token ausente" }, { status: 400 });
+    if (!TOKEN_RE.test(token)) {
+      return NextResponse.json({ error: "Convite nao encontrado" }, { status: 404 });
+    }
+
+    const rateLimit = await consumeSecurityRateLimit({
+      scope: "invite:accept",
+      key: `${token}:${getRequestClientIp(request)}`,
+      limit: 10,
+    });
+    if (!rateLimit.allowed) {
+      return NextResponse.json({ error: "Muitas tentativas" }, { status: 429 });
     }
 
     const supabase = createAdminClient();
@@ -74,17 +116,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user already exists
-    const { data: existingUsers } = await supabase.auth.admin.listUsers();
-    const existingUser = existingUsers?.users?.find((u) => u.email === invitation.email);
+    const { data: existingProfile } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("email", String(invitation.email).toLowerCase())
+      .maybeSingle();
 
     let userId: string;
 
-    if (existingUser) {
+    if (existingProfile) {
       // User already has an account — just add to workspace
-      userId = existingUser.id;
+      userId = existingProfile.id;
     } else {
       // Create new user
-      if (!password || password.length < 6) {
+      if (password.length < 6 || password.length > 128) {
         return NextResponse.json({ error: "Senha deve ter pelo menos 6 caracteres" }, { status: 400 });
       }
 
@@ -92,12 +137,16 @@ export async function POST(request: NextRequest) {
         email: invitation.email,
         password,
         email_confirm: true,
-        user_metadata: { full_name: full_name || "" },
+        user_metadata: { full_name: fullName },
       });
 
       if (createError || !newUser.user) {
+        console.error(
+          "[invite] create user failed:",
+          createError?.message || "missing_user"
+        );
         return NextResponse.json(
-          { error: createError?.message || "Erro ao criar conta" },
+          { error: "Erro ao criar conta" },
           { status: 500 }
         );
       }
@@ -114,13 +163,17 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (!existingMember) {
+      const invitationRole = invitation.role === "admin" ? "admin" : "member";
       const { error: memberError } = await supabase
         .from("workspace_members")
         .insert({
           workspace_id: invitation.workspace_id,
           user_id: userId,
-          role: invitation.role,
-          features: invitation.features ?? null,
+          role: invitationRole,
+          features:
+            invitationRole === "member" && Array.isArray(invitation.features)
+              ? invitation.features
+              : null,
         });
 
       if (memberError) {
@@ -139,6 +192,6 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erro desconhecido";
     console.error("[invite] Error:", message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: "Erro ao aceitar convite" }, { status: 500 });
   }
 }

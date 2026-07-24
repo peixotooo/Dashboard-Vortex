@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { updateTask, deleteTask, getTask } from "@/lib/agent/memory";
+import {
+  AuthError,
+  getWorkspaceContext,
+  handleAuthError,
+} from "@/lib/api-auth";
+import { readLimitedJson } from "@/lib/security/webhook-request";
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -24,22 +33,23 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    const { workspaceId } = await getWorkspaceContext(request);
+    if (!UUID_RE.test(id)) {
+      return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    }
     const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-    const task = await getTask(supabase, id);
+    const task = await getTask(supabase, id, workspaceId);
     if (!task)
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
 
     return NextResponse.json({ task });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message =
       error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[team/tasks/:id]", message);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
@@ -50,20 +60,35 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
+    const { workspaceId } = await getWorkspaceContext(request);
+    if (!UUID_RE.test(id)) {
+      return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    }
     const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-    const body = await request.json();
-    const task = await updateTask(supabase, id, body);
+    const parsed = await readLimitedJson(request, 64 * 1024);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    }
+    const body =
+      parsed.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+        ? (parsed.value as {
+            status?: string;
+            priority?: string;
+            title?: string;
+            description?: string;
+            agent_id?: string;
+            due_date?: string | null;
+          })
+        : {};
+    const task = await updateTask(supabase, id, body, workspaceId);
     return NextResponse.json({ task });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message =
       error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[team/tasks/:id]", message);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
@@ -74,18 +99,19 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
+    const { workspaceId } = await getWorkspaceContext(request);
+    if (!UUID_RE.test(id)) {
+      return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    }
     const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-    await deleteTask(supabase, id);
+    await deleteTask(supabase, id, workspaceId);
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message =
       error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[team/tasks/:id]", message);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

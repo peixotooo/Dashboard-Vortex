@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AuthError, getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import {
+  getWorkspaceAdminContext,
+  getWorkspaceContext,
+  handleAuthError,
+} from "@/lib/api-auth";
 import { isCapiConfigured } from "@/lib/meta-capi";
 import {
   getMetaCapiSettings,
   upsertMetaCapiCredentials,
   type MetaCapiSettings,
 } from "@/lib/meta-capi-settings";
-import { createAdminClient } from "@/lib/supabase-admin";
+import { readLimitedJson } from "@/lib/security/webhook-request";
 
 function allowedWorkspaceIds(): string[] {
   return (process.env.META_CAPI_VNDA_WORKSPACE_ID || "")
@@ -29,20 +33,6 @@ function meta(settings: MetaCapiSettings) {
   };
 }
 
-async function assertAdmin(workspaceId: string, userId: string) {
-  const admin = createAdminClient();
-  const { data } = await admin
-    .from("workspace_members")
-    .select("role")
-    .eq("workspace_id", workspaceId)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (!data || !["owner", "admin"].includes(data.role)) {
-    throw new AuthError("Admin access required", 403);
-  }
-}
-
 export async function GET(request: NextRequest) {
   try {
     const { workspaceId } = await getWorkspaceContext(request);
@@ -55,14 +45,42 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { userId, workspaceId } = await getWorkspaceContext(request);
-    await assertAdmin(workspaceId, userId);
-    const body = await request.json();
+    const { workspaceId } = await getWorkspaceAdminContext(request);
+    const parsed = await readLimitedJson(request, 32 * 1024);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    }
+    if (!parsed.value || typeof parsed.value !== "object" || Array.isArray(parsed.value)) {
+      return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
+    }
+    const body = parsed.value as Record<string, unknown>;
+    if (
+      body.pixel_id !== undefined &&
+      (typeof body.pixel_id !== "string" ||
+        (body.pixel_id.trim() !== "" &&
+          !/^\d{5,40}$/.test(body.pixel_id.trim())))
+    ) {
+      return NextResponse.json({ error: "pixel_id inválido" }, { status: 400 });
+    }
+    if (
+      body.access_token !== undefined &&
+      (typeof body.access_token !== "string" ||
+        body.access_token.length > 8192)
+    ) {
+      return NextResponse.json({ error: "access_token inválido" }, { status: 400 });
+    }
     const settings = await upsertMetaCapiCredentials(workspaceId, {
-      enabled: body.enabled,
-      pixel_id: body.pixel_id,
-      access_token: body.access_token,
-      clear_access_token: body.clear_access_token,
+      enabled: typeof body.enabled === "boolean" ? body.enabled : undefined,
+      pixel_id:
+        typeof body.pixel_id === "string" ? body.pixel_id : undefined,
+      access_token:
+        typeof body.access_token === "string"
+          ? body.access_token
+          : undefined,
+      clear_access_token:
+        typeof body.clear_access_token === "boolean"
+          ? body.clear_access_token
+          : undefined,
     });
     return NextResponse.json({ settings, ...meta(settings) });
   } catch (e) {

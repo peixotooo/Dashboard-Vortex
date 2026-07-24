@@ -14,7 +14,7 @@ function makeSessionId(): string {
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const ip = getBioClientIp(request);
-  if (!checkBioRateLimit(`bio_click:${ip}`, 300)) {
+  if (!(await checkBioRateLimit(`bio_click:${ip}`, 300))) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   }
 

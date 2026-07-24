@@ -69,8 +69,12 @@ export async function getRecentContacts(
       .order("sent_at", { ascending: false })
       .limit(10);
     const ors: string[] = [];
-    if (opts.email) ors.push(`customer_email.eq.${opts.email}`);
-    if (opts.phone) ors.push(`customer_phone.eq.${opts.phone}`);
+    if (opts.email && /^[a-z0-9@+._-]{1,254}$/i.test(opts.email)) {
+      ors.push(`customer_email.eq.${opts.email}`);
+    }
+    if (opts.phone && /^\+?\d{8,20}$/.test(opts.phone)) {
+      ors.push(`customer_phone.eq.${opts.phone}`);
+    }
     if (ors.length) q = q.or(ors.join(","));
     const { data } = await q;
     for (const r of data || []) out.push({ source: r.source, channel: r.channel, at: r.sent_at });

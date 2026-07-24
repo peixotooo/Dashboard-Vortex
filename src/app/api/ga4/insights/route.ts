@@ -1,12 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getGA4DailyReport, getGA4GoogleAdsCost, getGA4ProductViewers } from "@/lib/ga4-api";
+import {
+  AuthError,
+  getWorkspaceContext,
+  handleAuthError,
+} from "@/lib/api-auth";
 import { getPreviousPeriodDates } from "@/lib/utils";
 import type { DatePreset } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
   try {
+    await getWorkspaceContext(request);
+
     const { searchParams } = new URL(request.url);
-    const propertyId = searchParams.get("property_id") || undefined;
+    const configuredPropertyId = process.env.GA4_PROPERTY_ID?.trim();
+    const requestedPropertyId = searchParams.get("property_id")?.trim();
+    if (
+      requestedPropertyId &&
+      (!configuredPropertyId || requestedPropertyId !== configuredPropertyId)
+    ) {
+      return NextResponse.json({ error: "Property not allowed" }, { status: 403 });
+    }
+    const propertyId = configuredPropertyId || undefined;
     const datePreset = (searchParams.get("date_preset") || "last_30d") as DatePreset;
     const includeComparison = searchParams.get("include_comparison") === "true";
     const startDate = searchParams.get("start_date") || searchParams.get("since") || undefined;
@@ -15,7 +30,7 @@ export async function GET(request: NextRequest) {
     const customRange = useCustomRange ? { since: startDate!, until: endDate! } : undefined;
 
     // Check if GA4 is configured
-    if (!process.env.GA4_PROPERTY_ID && !propertyId) {
+    if (!propertyId) {
       return NextResponse.json({
         insights: [],
         totals: { sessions: 0, users: 0, newUsers: 0, transactions: 0, revenue: 0, pageViews: 0 },
@@ -77,6 +92,7 @@ export async function GET(request: NextRequest) {
       configured: true,
     });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[GA4] Error:", message);
     return NextResponse.json({

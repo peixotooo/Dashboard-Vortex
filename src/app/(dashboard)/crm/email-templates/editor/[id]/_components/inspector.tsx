@@ -19,9 +19,8 @@ import { WysiwygEditor } from "./wysiwyg";
 
 function htmlToPlainText(html: string): string {
   if (typeof window === "undefined") return html;
-  const tmp = document.createElement("div");
-  tmp.innerHTML = html;
-  return (tmp.textContent || tmp.innerText || "").trim();
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  return (parsed.body.textContent || "").trim();
 }
 
 /** Initial HTML for the WYSIWYG: prefer block.html, otherwise wrap legacy

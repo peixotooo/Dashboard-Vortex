@@ -4,12 +4,13 @@ import { validateApiKey } from "@/lib/shelves/api-key";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { dispatchGiftRequest } from "@/lib/gift-request/dispatch";
 import { upsertGiftRequestLead } from "@/lib/gift-request/crm-lead";
-
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
+import { getStorefrontCors } from "@/lib/cors";
+import {
+  consumeSecurityRateLimit,
+  getRequestClientIp,
+} from "@/lib/security/rate-limit";
+import { normalizePublicBrowserUrl } from "@/lib/security/external-url";
+import { readLimitedJson } from "@/lib/security/webhook-request";
 
 const MAX_PER_IP_PER_DAY = 10;
 const MAX_PER_RECIPIENT_PER_DAY = 3;
@@ -42,22 +43,42 @@ function hashIp(ip: string, workspaceId: string): string {
 }
 
 export async function POST(request: NextRequest) {
-  let body: Record<string, unknown> = {};
-  try {
-    body = await request.json();
-  } catch {
+  let corsResult = await getStorefrontCors(request);
+  let cors = corsResult.headers;
+  if (!corsResult.allowed) {
     return NextResponse.json(
-      { error: "Invalid JSON" },
-      { status: 400, headers: CORS_HEADERS }
+      { error: "Origin not allowed" },
+      { status: 403, headers: cors }
     );
   }
+
+  const parsed = await readLimitedJson(request, 32 * 1024);
+  if (!parsed.ok) {
+    return NextResponse.json(
+      { error: parsed.error },
+      { status: parsed.status, headers: cors }
+    );
+  }
+  const body =
+    parsed.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+      ? (parsed.value as Record<string, unknown>)
+      : {};
 
   const key = typeof body.key === "string" ? body.key : null;
   const auth = await validateApiKey(key);
   if (!auth) {
     return NextResponse.json(
       { error: "Invalid API key" },
-      { status: 401, headers: CORS_HEADERS }
+      { status: 401, headers: cors }
+    );
+  }
+
+  corsResult = await getStorefrontCors(request, auth.workspaceId);
+  cors = corsResult.headers;
+  if (!corsResult.allowed) {
+    return NextResponse.json(
+      { error: "Origin not allowed" },
+      { status: 403, headers: cors }
     );
   }
 
@@ -66,8 +87,8 @@ export async function POST(request: NextRequest) {
   const recipientPhoneRaw = sanitizeText(body.recipient_phone, 40);
   const productId = sanitizeText(body.product_id, 64);
   const productName = sanitizeText(body.product_name, 200);
-  const productUrl = sanitizeText(body.product_url, 500);
-  const productImage = sanitizeText(body.product_image_url, 500);
+  const productUrl = normalizePublicBrowserUrl(body.product_url);
+  const productImage = normalizePublicBrowserUrl(body.product_image_url);
   const productPriceRaw = body.product_price;
   const productPrice =
     typeof productPriceRaw === "number"
@@ -75,28 +96,35 @@ export async function POST(request: NextRequest) {
       : typeof productPriceRaw === "string" && productPriceRaw.trim()
       ? parseFloat(productPriceRaw.replace(",", "."))
       : null;
+  const safeProductPrice =
+    productPrice !== null &&
+    Number.isFinite(productPrice) &&
+    productPrice >= 0 &&
+    productPrice <= 10_000_000
+      ? productPrice
+      : null;
   const personalMessage = sanitizeText(body.personal_message, 500);
   const sessionId = sanitizeText(body.session_id, 80);
   const consumerId = sanitizeText(body.consumer_id, 80);
-  const pageUrl = sanitizeText(body.page_url, 500);
+  const pageUrl = normalizePublicBrowserUrl(body.page_url);
 
   if (!requesterName) {
     return NextResponse.json(
       { error: "requester_name required" },
-      { status: 400, headers: CORS_HEADERS }
+      { status: 400, headers: cors }
     );
   }
   const recipientPhone = normalizePhone(recipientPhoneRaw);
   if (!recipientPhone) {
     return NextResponse.json(
       { error: "recipient_phone invalid" },
-      { status: 400, headers: CORS_HEADERS }
+      { status: 400, headers: cors }
     );
   }
   if (!productId) {
     return NextResponse.json(
       { error: "product_id required" },
-      { status: 400, headers: CORS_HEADERS }
+      { status: 400, headers: cors }
     );
   }
 
@@ -116,19 +144,46 @@ export async function POST(request: NextRequest) {
   if (!config || !config.enabled) {
     return NextResponse.json(
       { error: "gift_request_disabled" },
-      { status: 403, headers: CORS_HEADERS }
+      { status: 403, headers: cors }
     );
   }
 
   // Rate limit por IP (anti-flood). x-real-ip é setado pela Vercel
   // (não-spoofável); o 1º valor do x-forwarded-for é controlado pelo cliente
   // (dá pra furar o limite trocando o header) — usa o ÚLTIMO como fallback.
-  const ip =
-    request.headers.get("x-real-ip")?.trim() ||
-    request.headers.get("x-forwarded-for")?.split(",").pop()?.trim() ||
-    "0.0.0.0";
+  const ip = getRequestClientIp(request);
   const ipHash = hashIp(ip, auth.workspaceId);
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  const [minuteLimit, dailyIpLimit, dailyRecipientLimit] = await Promise.all([
+    consumeSecurityRateLimit({
+      scope: "gift-request:submit:minute",
+      key: `${auth.workspaceId}:${ip}`,
+      limit: 5,
+    }),
+    consumeSecurityRateLimit({
+      scope: "gift-request:submit:daily-ip",
+      key: `${auth.workspaceId}:${ip}`,
+      limit: MAX_PER_IP_PER_DAY,
+      windowSeconds: 86_400,
+    }),
+    consumeSecurityRateLimit({
+      scope: "gift-request:submit:daily-recipient",
+      key: `${auth.workspaceId}:${recipientPhone}`,
+      limit: MAX_PER_RECIPIENT_PER_DAY,
+      windowSeconds: 86_400,
+    }),
+  ]);
+  if (
+    !minuteLimit.allowed ||
+    !dailyIpLimit.allowed ||
+    !dailyRecipientLimit.allowed
+  ) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: cors }
+    );
+  }
 
   const { count: ipCount } = await admin
     .from("gift_requests")
@@ -140,7 +195,7 @@ export async function POST(request: NextRequest) {
   if ((ipCount || 0) >= MAX_PER_IP_PER_DAY) {
     return NextResponse.json(
       { error: "rate_limited_ip" },
-      { status: 429, headers: CORS_HEADERS }
+      { status: 429, headers: cors }
     );
   }
 
@@ -155,7 +210,7 @@ export async function POST(request: NextRequest) {
   if ((recipientCount || 0) >= MAX_PER_RECIPIENT_PER_DAY) {
     return NextResponse.json(
       { error: "rate_limited_recipient" },
-      { status: 429, headers: CORS_HEADERS }
+      { status: 429, headers: cors }
     );
   }
 
@@ -173,7 +228,7 @@ export async function POST(request: NextRequest) {
       product_name: productName || null,
       product_url: productUrl || null,
       product_image_url: productImage || null,
-      product_price: productPrice && !isNaN(productPrice) ? productPrice : null,
+      product_price: safeProductPrice,
       personal_message: personalMessage || null,
       status: "queued",
       page_url: pageUrl || null,
@@ -186,7 +241,7 @@ export async function POST(request: NextRequest) {
   if (insErr || !gr) {
     return NextResponse.json(
       { error: insErr?.message || "insert_failed" },
-      { status: 500, headers: CORS_HEADERS }
+      { status: 500, headers: cors }
     );
   }
 
@@ -210,7 +265,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       { error: dispatchResult.error || "dispatch_failed" },
-      { status: 500, headers: CORS_HEADERS }
+      { status: 500, headers: cors }
     );
   }
 
@@ -248,16 +303,17 @@ export async function POST(request: NextRequest) {
     { ok: true, id: gr.id },
     {
       status: 200,
-      headers: { ...CORS_HEADERS, "Cache-Control": "no-store" },
+      headers: { ...cors, "Cache-Control": "no-store" },
     }
   );
 }
 
-export async function OPTIONS() {
+export async function OPTIONS(request: NextRequest) {
+  const cors = await getStorefrontCors(request);
   return new NextResponse(null, {
-    status: 204,
+    status: cors.allowed ? 204 : 403,
     headers: {
-      ...CORS_HEADERS,
+      ...cors.headers,
       "Access-Control-Max-Age": "86400",
     },
   });

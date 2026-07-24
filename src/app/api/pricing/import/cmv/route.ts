@@ -16,23 +16,118 @@ import path from "path";
 import { requireAdmin } from "@/lib/pricing/supabase";
 import { parseCogsCsv, type CsvCogsRow } from "@/lib/pricing/csv-import";
 
+const MAX_CSV_BYTES = 10 * 1024 * 1024;
+const SAFE_PUBLIC_CSV = /^[a-z0-9][a-z0-9._ ()-]{0,180}\.csv$/i;
+
+class CsvImportRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: 400 | 413
+  ) {
+    super(message);
+  }
+}
+
+function assertBodySize(request: NextRequest) {
+  const raw = request.headers.get("content-length");
+  if (!raw) return;
+  const size = Number(raw);
+  if (!Number.isFinite(size) || size < 0 || size > MAX_CSV_BYTES) {
+    throw new CsvImportRequestError("CSV excede o limite de 10 MB.", 413);
+  }
+}
+
+async function readPublicCsv(filenameValue: string): Promise<string> {
+  const filename = filenameValue.trim();
+  if (
+    !SAFE_PUBLIC_CSV.test(filename) ||
+    filename !== path.basename(filename)
+  ) {
+    throw new CsvImportRequestError("Nome de arquivo CSV inválido.", 400);
+  }
+
+  const publicRoot = await fs.realpath(path.resolve(process.cwd(), "public"));
+  const candidate = path.resolve(publicRoot, filename);
+  if (path.dirname(candidate) !== publicRoot) {
+    throw new CsvImportRequestError("Nome de arquivo CSV inválido.", 400);
+  }
+
+  let target: string;
+  let stat;
+  try {
+    const linkStat = await fs.lstat(candidate);
+    if (linkStat.isSymbolicLink()) {
+      throw new CsvImportRequestError("Arquivo CSV inválido.", 400);
+    }
+    target = await fs.realpath(candidate);
+    stat = await fs.stat(target);
+  } catch (error) {
+    if (error instanceof CsvImportRequestError) throw error;
+    throw new CsvImportRequestError("Arquivo CSV não encontrado.", 400);
+  }
+
+  if (
+    path.dirname(target) !== publicRoot ||
+    !stat.isFile() ||
+    stat.size > MAX_CSV_BYTES
+  ) {
+    throw new CsvImportRequestError(
+      stat.size > MAX_CSV_BYTES
+        ? "CSV excede o limite de 10 MB."
+        : "Arquivo CSV inválido.",
+      stat.size > MAX_CSV_BYTES ? 413 : 400
+    );
+  }
+  return fs.readFile(target, "utf-8");
+}
+
 async function readCsvFromRequest(request: NextRequest): Promise<string | null> {
+  assertBodySize(request);
   const contentType = request.headers.get("content-type") || "";
   if (contentType.includes("multipart/form-data")) {
     const form = await request.formData();
     const file = form.get("file");
     if (file instanceof File) {
+      if (
+        file.size > MAX_CSV_BYTES ||
+        !file.name.toLowerCase().endsWith(".csv")
+      ) {
+        throw new CsvImportRequestError(
+          file.size > MAX_CSV_BYTES
+            ? "CSV excede o limite de 10 MB."
+            : "Envie um arquivo .csv válido.",
+          file.size > MAX_CSV_BYTES ? 413 : 400
+        );
+      }
       return await file.text();
     }
     return null;
   }
-  // JSON path
-  const body = await request.json().catch(() => ({}));
-  if (body.source === "public" && typeof body.filename === "string") {
-    const fullPath = path.join(process.cwd(), "public", body.filename);
-    return fs.readFile(fullPath, "utf-8");
+
+  const rawBody = await request.text();
+  if (Buffer.byteLength(rawBody, "utf8") > MAX_CSV_BYTES) {
+    throw new CsvImportRequestError("CSV excede o limite de 10 MB.", 413);
   }
-  if (typeof body.csv === "string") return body.csv;
+  let body: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(rawBody);
+    body =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : {};
+  } catch {
+    throw new CsvImportRequestError("JSON inválido.", 400);
+  }
+
+  if (body.source === "public" && typeof body.filename === "string") {
+    return readPublicCsv(body.filename);
+  }
+  if (typeof body.csv === "string") {
+    if (Buffer.byteLength(body.csv, "utf8") > MAX_CSV_BYTES) {
+      throw new CsvImportRequestError("CSV excede o limite de 10 MB.", 413);
+    }
+    return body.csv;
+  }
   return null;
 }
 
@@ -86,7 +181,13 @@ export async function POST(request: NextRequest) {
       errors: errors.slice(0, 5),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    if (error instanceof CsvImportRequestError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    console.error(
+      "[pricing/import/cmv]",
+      error instanceof Error ? error.message : "import_failed"
+    );
+    return NextResponse.json({ error: "Falha ao importar o CSV." }, { status: 500 });
   }
 }

@@ -16,7 +16,7 @@ export function applyEntryFilters<T>(query: T, workspaceId: string, p: URLSearch
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let q: any = query;
   q = q.eq("workspace_id", workspaceId).is("deleted_at", null);
-  const text = p.get("q");
+  const text = p.get("q")?.replace(/[%_,().*"'\\]/g, " ").trim().slice(0, 120);
   if (text) q = q.or(`description.ilike.%${text}%,doc_number.ilike.%${text}%`);
   if (p.get("classification_id")) q = q.eq("classification_id", p.get("classification_id")!);
   if (p.get("account_id")) q = q.eq("bank_account_id", p.get("account_id")!);

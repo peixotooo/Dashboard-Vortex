@@ -1879,13 +1879,14 @@ function RenderedMessagePreview({
             )}
           </div>
         </div>
-        <div
-          className="bg-white max-h-[400px] overflow-auto text-sm"
-          dangerouslySetInnerHTML={{
-            __html:
-              payload.body_html ||
-              `<div class="p-4 text-muted-foreground italic">(corpo vazio)</div>`,
-          }}
+        <iframe
+          className="bg-white h-[400px] w-full border-0"
+          sandbox=""
+          title="Preview do email"
+          srcDoc={
+            payload.body_html ||
+            `<div style="padding:16px;color:#737373;font-style:italic">(corpo vazio)</div>`
+          }
         />
       </div>
     </div>
@@ -2236,14 +2237,14 @@ function StepEditor({
                     )}
                   </div>
                 </div>
-                <div
-                  className="bg-white max-h-[500px] overflow-auto text-sm"
-                  dangerouslySetInnerHTML={{
-                    __html: interpolate(
-                      step.email_body_html || "",
-                      SAMPLE_VARS
-                    ) || `<div class="p-4 text-muted-foreground italic">(corpo vazio)</div>`,
-                  }}
+                <iframe
+                  className="bg-white h-[500px] w-full border-0"
+                  sandbox=""
+                  title="Preview do email da etapa"
+                  srcDoc={
+                    interpolate(step.email_body_html || "", SAMPLE_VARS) ||
+                    `<div style="padding:16px;color:#737373;font-style:italic">(corpo vazio)</div>`
+                  }
                 />
               </div>
             </div>

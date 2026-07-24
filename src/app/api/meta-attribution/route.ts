@@ -1,11 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { validateApiKey } from "@/lib/shelves/api-key";
-import { buildCorsHeaders } from "@/lib/cors";
 import {
   normalizeAttributionEmail,
   upsertMetaAttributionSnapshot,
 } from "@/lib/meta-attribution";
+import {
+  isKnownStorefrontOrigin,
+  isWorkspaceStorefrontOrigin,
+  storefrontCorsHeaders,
+} from "@/lib/security/storefront-origin";
+import {
+  consumeSecurityRateLimit,
+  getRequestClientIp,
+  securityRateLimitHeaders,
+} from "@/lib/security/rate-limit";
+import { readLimitedJson } from "@/lib/security/webhook-request";
+
+const MAX_BODY_BYTES = 8 * 1024;
 
 // Captures Meta CAPI browser-side signals (fbc, fbp, client IP, user agent)
 // keyed by the email the customer typed in the storefront checkout form.
@@ -27,17 +39,39 @@ interface Body {
 }
 
 export async function POST(request: NextRequest) {
-  const cors = buildCorsHeaders(request);
+  const origin = request.headers.get("origin");
+  const knownOrigin = await isKnownStorefrontOrigin(origin);
+  let cors = storefrontCorsHeaders(origin, knownOrigin);
+  if (!knownOrigin) {
+    return NextResponse.json(
+      { error: "Origin not allowed" },
+      { status: 403, headers: cors }
+    );
+  }
 
-  let body: Body;
-  try {
-    body = await request.json();
-  } catch {
+  const parsedBody = await readLimitedJson(request, MAX_BODY_BYTES);
+  if (!parsedBody.ok) {
+    return NextResponse.json(
+      {
+        error:
+          parsedBody.error === "payload_too_large"
+            ? "Payload too large"
+            : "Invalid JSON",
+      },
+      { status: parsedBody.status, headers: cors }
+    );
+  }
+  if (
+    !parsedBody.value ||
+    typeof parsedBody.value !== "object" ||
+    Array.isArray(parsedBody.value)
+  ) {
     return NextResponse.json(
       { error: "Invalid JSON" },
       { status: 400, headers: cors }
     );
   }
+  const body = parsedBody.value as Body;
 
   const auth = await validateApiKey(body.key);
   if (!auth) {
@@ -47,28 +81,60 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const workspaceOrigin = await isWorkspaceStorefrontOrigin(
+    auth.workspaceId,
+    origin
+  );
+  cors = storefrontCorsHeaders(origin, workspaceOrigin);
+  if (!workspaceOrigin) {
+    return NextResponse.json(
+      { error: "Origin not allowed for workspace" },
+      { status: 403, headers: cors }
+    );
+  }
+
+  const clientIp = getRequestClientIp(request);
+  const [ipRate, workspaceRate] = await Promise.all([
+    consumeSecurityRateLimit({
+      scope: "meta-attribution-ip",
+      key: `${auth.workspaceId}:${clientIp}`,
+      limit: 60,
+    }),
+    consumeSecurityRateLimit({
+      scope: "meta-attribution-workspace",
+      key: auth.workspaceId,
+      limit: 1_000,
+    }),
+  ]);
+  cors = {
+    ...cors,
+    ...securityRateLimitHeaders(ipRate, 60),
+  };
+  if (!ipRate.allowed || !workspaceRate.allowed) {
+    return NextResponse.json(
+      { error: "Rate limit exceeded" },
+      { status: 429, headers: cors }
+    );
+  }
+
   const email = normalizeAttributionEmail(body.email);
-  if (!email || !email.includes("@")) {
+  if (!email || email.length > 320 || !email.includes("@")) {
     return NextResponse.json(
       { ok: false, reason: "missing_email" },
       { headers: cors }
     );
   }
 
-  const clientIp =
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip") ||
-    null;
-  const userAgent = body.user_agent || request.headers.get("user-agent") || null;
+  const userAgent = request.headers.get("user-agent")?.slice(0, 500) || null;
 
   const admin = createAdminClient();
   const result = await upsertMetaAttributionSnapshot(admin, {
     workspaceId: auth.workspaceId,
     email,
-    consumerId: body.consumer_id,
+    consumerId: body.consumer_id?.trim().slice(0, 160),
     fbc: body.fbc,
     fbp: body.fbp,
-    clientIp,
+    clientIp: clientIp === "unknown" ? null : clientIp,
     userAgent,
   });
 
@@ -91,11 +157,10 @@ export async function POST(request: NextRequest) {
 }
 
 export async function OPTIONS(request: NextRequest) {
+  const origin = request.headers.get("origin");
+  const allowed = await isKnownStorefrontOrigin(origin);
   return new NextResponse(null, {
-    status: 204,
-    headers: {
-      ...buildCorsHeaders(request),
-      "Access-Control-Max-Age": "86400",
-    },
+    status: allowed ? 204 : 403,
+    headers: storefrontCorsHeaders(origin, allowed),
   });
 }

@@ -26,7 +26,7 @@ async function createClient(): Promise<Client> {
   // Use npx to run the published meta-ads-mcp package (pre-compiled)
   const transport = new StdioClientTransport({
     command: "npx",
-    args: ["-y", "meta-ads-mcp"],
+    args: ["-y", "meta-ads-mcp@1.1.0"],
     env: {
       ...process.env,
       META_ACCESS_TOKEN:

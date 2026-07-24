@@ -10,6 +10,8 @@
 // Auth: Bearer JWT (header Authorization). Token é gerado no painel
 // app.iporto.com.br em "Página inicial > API > Nova API". Validade 1 ano.
 
+import { fetchPublicHttpUrl } from "@/lib/security/external-url";
+
 export interface IportoCreds {
   base_url: string;
   token: string;
@@ -47,17 +49,25 @@ async function request<T>(
   body?: unknown
 ): Promise<T> {
   const url = `${creds.base_url.replace(/\/+$/, "")}${path}`;
-  const res = await fetch(url, {
-    method,
-    headers: {
-      Authorization: `Bearer ${creds.token.trim()}`,
-      // charset=utf-8 explícito + body com Unicode escapes garante que
-      // acentos não chegam corrompidos no painel iPORTO.
-      "Content-Type": "application/json; charset=utf-8",
-      Accept: "application/json",
+  const res = await fetchPublicHttpUrl(
+    url,
+    {
+      method,
+      headers: {
+        Authorization: `Bearer ${creds.token.trim()}`,
+        // charset=utf-8 explícito + body com Unicode escapes garante que
+        // acentos não chegam corrompidos no painel iPORTO.
+        "Content-Type": "application/json; charset=utf-8",
+        Accept: "application/json",
+      },
+      body: body !== undefined ? stringifyAsciiSafe(body) : undefined,
     },
-    body: body !== undefined ? stringifyAsciiSafe(body) : undefined,
-  });
+    {
+      label: "iPORTO API",
+      maxRedirects: 1,
+      allowCrossOriginRedirects: false,
+    }
+  );
   const text = await res.text();
   let parsed: unknown = null;
   if (text) {
@@ -182,13 +192,21 @@ export function extractMessageId(ref: DeliveryRef | undefined | null): string | 
 export async function ping(creds: IportoCreds): Promise<{ ok: true }> {
   // Tenta um GET barato no domínio. Se der 401/403, throw. Senão, ok.
   const url = `${creds.base_url.replace(/\/+$/, "")}/delivery/smtp/status`;
-  const res = await fetch(url, {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${creds.token.trim()}`,
-      Accept: "application/json",
+  const res = await fetchPublicHttpUrl(
+    url,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${creds.token.trim()}`,
+        Accept: "application/json",
+      },
     },
-  });
+    {
+      label: "iPORTO API",
+      maxRedirects: 1,
+      allowCrossOriginRedirects: false,
+    }
+  );
   if (res.status === 401 || res.status === 403) {
     throw {
       status: res.status,

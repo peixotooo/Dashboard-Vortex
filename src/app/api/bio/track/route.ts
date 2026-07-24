@@ -4,11 +4,13 @@ import {
   checkBioRateLimit,
   getBioClientIp,
   isAllowedBioOrigin,
-  isBioRequestBodyTooLarge,
   isValidBioWorkspaceId,
   sanitizeBioMetadata,
 } from "@/lib/bio/security";
 import { isValidBioEvent, parseUtm, recordBioEvent } from "@/lib/bio/tracking";
+import { readLimitedJson } from "@/lib/security/webhook-request";
+
+const MAX_BODY_BYTES = 16 * 1024;
 
 export async function POST(request: NextRequest) {
   const cors = buildBioCorsHeaders(request);
@@ -17,17 +19,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Origin not allowed" }, { status: 403, headers: cors });
   }
 
-  if (isBioRequestBodyTooLarge(request)) {
-    return NextResponse.json({ error: "Payload too large" }, { status: 413, headers: cors });
-  }
-
   const ip = getBioClientIp(request);
-  if (!checkBioRateLimit(`bio_track:${ip}`, 240)) {
+  if (!(await checkBioRateLimit(`bio_track:${ip}`, 240))) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: cors });
   }
 
-  const body = await request.json().catch(() => null);
-  if (!body || typeof body !== "object") {
+  const parsedBody = await readLimitedJson(request, MAX_BODY_BYTES);
+  if (!parsedBody.ok) {
+    return NextResponse.json(
+      { error: parsedBody.error },
+      { status: parsedBody.status, headers: cors }
+    );
+  }
+  const body = parsedBody.value as Record<string, unknown>;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400, headers: cors });
   }
 
@@ -45,7 +50,7 @@ export async function POST(request: NextRequest) {
   if (!isValidBioEvent(eventName)) {
     return NextResponse.json({ error: "Invalid event_name" }, { status: 400, headers: cors });
   }
-  if (!checkBioRateLimit(`bio_track:${ip}:${workspaceId}`, 120)) {
+  if (!(await checkBioRateLimit(`bio_track:${ip}:${workspaceId}`, 120))) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: cors });
   }
 

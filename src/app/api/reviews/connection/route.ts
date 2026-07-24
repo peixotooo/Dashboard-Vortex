@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import {
+  getWorkspaceAdminContext,
+  getWorkspaceContext,
+  handleAuthError,
+} from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { encrypt } from "@/lib/encryption";
+import { readLimitedJson } from "@/lib/security/webhook-request";
 
 // Status da conexão Yourviews (sem nunca devolver segredos pro browser).
 export async function GET(request: NextRequest) {
@@ -35,11 +40,28 @@ export async function GET(request: NextRequest) {
 // Salva/atualiza as credenciais da Yourviews (criptografadas).
 export async function POST(request: NextRequest) {
   try {
-    const { workspaceId } = await getWorkspaceContext(request);
-    const body = await request.json();
+    const { workspaceId } = await getWorkspaceAdminContext(request);
+    const parsed = await readLimitedJson(request, 32 * 1024);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    }
+    if (!parsed.value || typeof parsed.value !== "object" || Array.isArray(parsed.value)) {
+      return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
+    }
+    const body = parsed.value as Record<string, unknown>;
     const { store_key, api_username, api_password } = body;
 
-    if (!store_key || !api_username || !api_password) {
+    if (
+      typeof store_key !== "string" ||
+      !store_key.trim() ||
+      store_key.length > 512 ||
+      typeof api_username !== "string" ||
+      !api_username.trim() ||
+      api_username.length > 512 ||
+      typeof api_password !== "string" ||
+      !api_password.trim() ||
+      api_password.length > 4096
+    ) {
       return NextResponse.json(
         { error: "store_key, api_username e api_password são obrigatórios" },
         { status: 400 }
@@ -67,7 +89,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const { workspaceId } = await getWorkspaceContext(request);
+    const { workspaceId } = await getWorkspaceAdminContext(request);
     const admin = createAdminClient();
     const { error } = await admin
       .from("yourviews_connections")

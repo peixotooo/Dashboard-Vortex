@@ -4,8 +4,17 @@ import {
   normalizeCart,
   validateAbandonedCartPayload,
 } from "@/lib/cart-recovery/payload";
+import {
+  consumeSecurityRateLimit,
+  getRequestClientIp,
+} from "@/lib/security/rate-limit";
+import {
+  getWebhookSecret,
+  readLimitedJson,
+} from "@/lib/security/webhook-request";
 
 export const maxDuration = 30;
+const MAX_WEBHOOK_BYTES = 2 * 1024 * 1024;
 
 const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T | null> =>
   Promise.race([p, new Promise<null>((r) => setTimeout(() => r(null), ms))]);
@@ -14,12 +23,22 @@ const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T | null> =>
 // vnda_connections.webhook_token, resposta 200 imediata em erros pra
 // evitar retries agressivos da VNDA.
 export async function POST(request: NextRequest) {
-  const token = request.nextUrl.searchParams.get("token");
+  const token = getWebhookSecret(request);
   if (!token) {
     return NextResponse.json(
       { error: "Missing token parameter" },
       { status: 401 }
     );
+  }
+
+  const rateLimit = await consumeSecurityRateLimit({
+    scope: "webhook:vnda:abandoned-cart",
+    key: `${getRequestClientIp(request)}:${token}`,
+    limit: 600,
+    windowSeconds: 60,
+  });
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ ok: false, reason: "rate_limited" });
   }
 
   const admin = createAdminClient();
@@ -48,13 +67,15 @@ export async function POST(request: NextRequest) {
 
   const workspaceId = connection.workspace_id as string;
 
-  let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch {
+  const parsedBody = await readLimitedJson(request, MAX_WEBHOOK_BYTES);
+  if (!parsedBody.ok) {
     await logWebhook(admin, workspaceId, null, "error", null, "Invalid JSON body");
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    return NextResponse.json(
+      { error: parsedBody.error },
+      { status: parsedBody.status }
+    );
   }
+  const payload = parsedBody.value;
 
   if (!validateAbandonedCartPayload(payload)) {
     console.warn(

@@ -11,7 +11,7 @@
 //     (só boolean disponível por tamanho), nem PII.
 
 import { NextRequest, NextResponse } from "next/server";
-import { buildCorsHeaders } from "@/lib/cors";
+import { getStorefrontCors } from "@/lib/cors";
 import { validateApiKey } from "@/lib/shelves/api-key";
 import { getAssistantSettings } from "@/lib/assistant/settings";
 import { getProductDetails } from "@/lib/assistant/catalog";
@@ -19,23 +19,27 @@ import { getReviewsForChat } from "@/lib/assistant/commerce";
 import { getActiveKnowledge } from "@/lib/assistant/knowledge";
 import { hashIp } from "@/lib/assistant/guardrails";
 import { checkIpRateLimit } from "@/lib/assistant/rate-limit";
+import { getRequestClientIp } from "@/lib/security/rate-limit";
+import { readLimitedJson } from "@/lib/security/webhook-request";
 
 export const runtime = "nodejs";
 export const maxDuration = 20;
+const MAX_BODY_BYTES = 8 * 1024;
 
 interface Body {
   key?: unknown;
   product_id?: unknown;
 }
 
-function json(request: NextRequest, status: number, body: Record<string, unknown>) {
-  return NextResponse.json(body, { status, headers: buildCorsHeaders(request) });
+function json(headers: Record<string, string>, status: number, body: Record<string, unknown>) {
+  return NextResponse.json(body, { status, headers });
 }
 
 export async function OPTIONS(request: NextRequest) {
+  const cors = await getStorefrontCors(request);
   return new NextResponse(null, {
-    status: 204,
-    headers: { ...buildCorsHeaders(request), "Access-Control-Max-Age": "86400" },
+    status: cors.allowed ? 204 : 403,
+    headers: { ...cors.headers, "Access-Control-Max-Age": "86400" },
   });
 }
 
@@ -56,35 +60,46 @@ function buildBadges(p: {
 }
 
 export async function POST(request: NextRequest) {
-  let body: Body;
-  try {
-    body = (await request.json()) as Body;
-  } catch {
-    return json(request, 400, { ok: false, error: "invalid body" });
+  let corsResult = await getStorefrontCors(request);
+  let cors = corsResult.headers;
+  if (!corsResult.allowed) {
+    return json(cors, 403, { ok: false, error: "origin not allowed" });
   }
 
+  const parsed = await readLimitedJson(request, MAX_BODY_BYTES);
+  if (!parsed.ok) {
+    return json(cors, parsed.status, { ok: false, error: parsed.error });
+  }
+  const body =
+    parsed.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+      ? (parsed.value as Body)
+      : {};
+
   const auth = await validateApiKey(typeof body.key === "string" ? body.key : null);
-  if (!auth) return json(request, 401, { ok: false, error: "invalid key" });
+  if (!auth) return json(cors, 401, { ok: false, error: "invalid key" });
   const { workspaceId } = auth;
+
+  corsResult = await getStorefrontCors(request, workspaceId);
+  cors = corsResult.headers;
+  if (!corsResult.allowed) {
+    return json(cors, 403, { ok: false, error: "origin not allowed" });
+  }
 
   const settings = await getAssistantSettings(workspaceId);
   if (!settings.enabled || !settings.globalEnabled) {
-    return json(request, 403, { ok: false, error: "chat commerce disabled" });
+    return json(cors, 403, { ok: false, error: "chat commerce disabled" });
   }
 
-  const ip =
-    request.headers.get("x-real-ip")?.trim() ||
-    request.headers.get("x-forwarded-for")?.split(",").pop()?.trim() ||
-    "unknown";
-  if (!checkIpRateLimit(hashIp(ip))) {
-    return json(request, 429, { ok: false, error: "rate limited" });
+  const ip = getRequestClientIp(request);
+  if (!(await checkIpRateLimit(hashIp(ip)))) {
+    return json(cors, 429, { ok: false, error: "rate limited" });
   }
 
   const productId =
     typeof body.product_id === "string" && /^[\w-]{1,40}$/.test(body.product_id)
       ? body.product_id
       : null;
-  if (!productId) return json(request, 400, { ok: false, error: "invalid product_id" });
+  if (!productId) return json(cors, 400, { ok: false, error: "invalid product_id" });
 
   // Detalhe (cacheado 90s) + avaliações + benefícios ativos em paralelo.
   const [details, reviews, knowledge] = await Promise.all([
@@ -93,12 +108,12 @@ export async function POST(request: NextRequest) {
     getActiveKnowledge(workspaceId, "product").catch(() => null),
   ]);
 
-  if (!details) return json(request, 404, { ok: false, error: "product not found" });
+  if (!details) return json(cors, 404, { ok: false, error: "product not found" });
 
   const benefits = Array.isArray(knowledge?.benefits) ? knowledge!.benefits.slice(0, 8) : [];
   const cashbackPercent = knowledge?.cashback?.percent ? Number(knowledge.cashback.percent) : 0;
 
-  return json(request, 200, {
+  return json(cors, 200, {
     ok: true,
     product: {
       id: details.id,

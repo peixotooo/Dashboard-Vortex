@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import {
+  getWorkspaceAdminContext,
+  getWorkspaceContext,
+  handleAuthError,
+} from "@/lib/api-auth";
+import { readLimitedJson } from "@/lib/security/webhook-request";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -40,11 +45,21 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { workspaceId } = await getWorkspaceContext(request);
+    const { workspaceId } = await getWorkspaceAdminContext(request);
     const supabase = createSupabase(request);
 
-    const body = await request.json().catch(() => ({}));
-    const name = (body as { name?: string }).name || "default";
+    const parsed = await readLimitedJson(request, 8 * 1024);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    }
+    const body =
+      parsed.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+        ? (parsed.value as Record<string, unknown>)
+        : {};
+    const name =
+      typeof body.name === "string" && body.name.trim()
+        ? body.name.trim().slice(0, 100)
+        : "default";
 
     const { data, error } = await supabase
       .from("shelf_api_keys")

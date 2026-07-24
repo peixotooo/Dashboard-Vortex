@@ -243,7 +243,7 @@ export async function POST(request: NextRequest) {
         }
 
         // 1. Upload to B2
-        const key = generateKey(fileName, `creatives/${workspaceId}`);
+        const key = generateKey(fileName, `creatives/${workspaceId}`, fileType);
         const imageUrl = await uploadFile(key, fileBuffer, fileType);
 
         // 2. Upload to Meta

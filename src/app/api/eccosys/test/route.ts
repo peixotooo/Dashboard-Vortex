@@ -1,17 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
 import { eccosys } from "@/lib/eccosys/client";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 
 export async function POST(req: NextRequest) {
-  // Authenticate user
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => req.cookies.getAll(), setAll() {} } }
-  );
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    await getWorkspaceContext(req);
+  } catch (error) {
+    return handleAuthError(error);
   }
 
   const config = eccosys.getConfig();
@@ -36,6 +31,10 @@ export async function POST(req: NextRequest) {
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erro desconhecido";
-    return NextResponse.json({ ok: false, message }, { status: 500 });
+    console.error("[eccosys/test]", message);
+    return NextResponse.json(
+      { ok: false, message: "Não foi possível testar a conexão." },
+      { status: 500 }
+    );
   }
 }

@@ -98,7 +98,7 @@ export default function VndaPage() {
       const [insightsRes, productsRes, ga4Res] = await Promise.all([
         fetch(`/api/vnda/insights?date_preset=${datePreset}&include_comparison=true`, { headers: hdrs }),
         fetch(`/api/vnda/products?date_preset=${datePreset}&limit=20`, { headers: hdrs }),
-        fetch(`/api/ga4/insights?date_preset=${datePreset}`),
+        fetch(`/api/ga4/insights?date_preset=${datePreset}`, { headers: hdrs }),
       ]);
 
       const insightsData = await insightsRes.json();
