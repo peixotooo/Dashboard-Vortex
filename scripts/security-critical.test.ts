@@ -188,6 +188,59 @@ test("rate limiting and private import storage are migration-backed", async () =
   assert.doesNotMatch(storageHelper, /object\/public/);
 });
 
+test("login and password recovery use server-side abuse protection", async () => {
+  const loginPage = await readFile(
+    path.join(ROOT, "src/app/(auth)/login/page.tsx"),
+    "utf8"
+  );
+  const recoveryPage = await readFile(
+    path.join(ROOT, "src/app/(auth)/forgot-password/page.tsx"),
+    "utf8"
+  );
+  const loginRoute = await readFile(
+    path.join(ROOT, "src/app/api/auth/login/route.ts"),
+    "utf8"
+  );
+  const recoveryRoute = await readFile(
+    path.join(ROOT, "src/app/api/auth/recover/route.ts"),
+    "utf8"
+  );
+  const limiter = await readFile(
+    path.join(ROOT, "src/lib/security/auth-rate-limit.ts"),
+    "utf8"
+  );
+  const authFetch = await readFile(
+    path.join(ROOT, "src/lib/security/supabase-auth.ts"),
+    "utf8"
+  );
+
+  assert.match(loginPage, /fetch\("\/api\/auth\/login"/);
+  assert.doesNotMatch(loginPage, /signInWithPassword|createClient/);
+  assert.match(recoveryPage, /fetch\("\/api\/auth\/recover"/);
+  assert.doesNotMatch(recoveryPage, /resetPasswordForEmail|createClient/);
+
+  for (const route of [loginRoute, recoveryRoute]) {
+    assert.match(route, /assertTrustedMutationOrigin\(request\)/);
+    assert.match(route, /readLimitedJson\(request, MAX_BODY_BYTES\)/);
+    assert.match(route, /consumeAuthRateLimits/);
+    assert.match(route, /Cache-Control/);
+  }
+
+  assert.match(loginRoute, /signInWithPassword/);
+  assert.match(loginRoute, /successResponse\.cookies\.set/);
+  assert.match(loginRoute, /E-mail ou senha incorretos\./);
+  assert.doesNotMatch(loginRoute, /email not confirmed/i);
+  assert.match(recoveryRoute, /resetPasswordForEmail/);
+  assert.match(recoveryRoute, /Do not reveal whether an account exists/);
+  assert.match(limiter, /auth:login:pair:5m/);
+  assert.match(limiter, /auth:login:pair:30m/);
+  assert.match(limiter, /auth:login:pair:24h/);
+  assert.match(limiter, /auth:recover:pair:1h/);
+  assert.match(authFetch, /AUTH_FETCH_TIMEOUT_MS/);
+  assert.match(authFetch, /requestSignal/);
+  assert.match(authFetch, /\.trim\(\)/);
+});
+
 test("Mercado Livre webhook verifies source and schedules guaranteed after-work", async () => {
   const source = await readFile(
     path.join(ROOT, "src/app/api/ml/webhook/route.ts"),

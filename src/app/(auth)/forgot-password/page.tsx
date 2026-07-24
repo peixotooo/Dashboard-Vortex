@@ -2,7 +2,6 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,7 +14,13 @@ export default function ForgotPasswordPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const supabase = createClient();
+
+  function rateLimitMessage(retryAfter: unknown): string {
+    const seconds = typeof retryAfter === "number" ? retryAfter : 0;
+    if (seconds < 60) return "Muitas solicitações. Aguarde um instante e tente novamente.";
+    const minutes = Math.ceil(seconds / 60);
+    return `Muitas solicitações. Aguarde cerca de ${minutes} minuto${minutes === 1 ? "" : "s"} e tente novamente.`;
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -24,16 +29,35 @@ export default function ForgotPasswordPage() {
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: "https://dashboard-vortex.vercel.app/auth/callback?type=recovery",
-      });
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 15_000);
+      const response = await fetch("/api/auth/recover", {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+        signal: controller.signal,
+      }).finally(() => window.clearTimeout(timeout));
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        message?: string;
+        retry_after?: number;
+      };
 
-      if (error) {
-        setError(error.message);
+      if (!response.ok) {
+        setError(
+          response.status === 429
+            ? rateLimitMessage(data.retry_after)
+            : data.error || "Erro ao processar solicitação. Tente novamente."
+        );
         return;
       }
 
-      setMessage("Se o e-mail estiver cadastrado, você receberá um link de recuperação em instantes.");
+      setMessage(
+        data.message ||
+          "Se o e-mail estiver cadastrado, você receberá um link de recuperação em instantes."
+      );
     } catch {
       setError("Erro ao processar solicitação. Tente novamente.");
     } finally {
@@ -55,12 +79,20 @@ export default function ForgotPasswordPage() {
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+            <div
+              className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive"
+              role="alert"
+              aria-live="polite"
+            >
               {error}
             </div>
           )}
           {message && (
-            <div className="rounded-lg bg-primary/10 p-3 text-sm text-primary">
+            <div
+              className="rounded-lg bg-primary/10 p-3 text-sm text-primary"
+              role="status"
+              aria-live="polite"
+            >
               {message}
             </div>
           )}
@@ -73,6 +105,9 @@ export default function ForgotPasswordPage() {
               placeholder="seu@email.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              inputMode="email"
+              maxLength={254}
               required
             />
           </div>
