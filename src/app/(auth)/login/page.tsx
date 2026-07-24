@@ -2,7 +2,6 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,37 +13,15 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const supabase = createClient();
 
-  // Falhas passageiras (timeout/abort do nosso wrapper de fetch, rede instável,
-  // saturação 504/522 do Supabase) — vale uma nova tentativa automática.
-  function isTransient(message: string): boolean {
-    const m = (message || "").toLowerCase();
-    return (
-      m.includes("aborted") ||
-      m.includes("timeout") ||
-      m.includes("timed out") ||
-      m.includes("failed to fetch") ||
-      m.includes("load failed") ||
-      m.includes("networkerror") ||
-      m.includes("network error") ||
-      m.includes("502") ||
-      m.includes("503") ||
-      m.includes("504") ||
-      m.includes("522")
-    );
-  }
-
-  // Traduz o erro cru do Supabase para algo claro em português.
-  function friendlyError(message: string): string {
-    const m = (message || "").toLowerCase();
-    if (m.includes("invalid login credentials")) return "E-mail ou senha incorretos.";
-    if (m.includes("email not confirmed")) return "E-mail ainda não confirmado.";
-    if (m.includes("too many requests") || m.includes("rate limit"))
-      return "Muitas tentativas. Aguarde um instante e tente de novo.";
-    if (isTransient(message))
-      return "Conexão lenta com o servidor. Tente entrar novamente em alguns segundos.";
-    return message || "Erro ao fazer login. Tente novamente.";
+  function rateLimitMessage(retryAfter: unknown): string {
+    const seconds = typeof retryAfter === "number" ? retryAfter : 0;
+    if (seconds < 1) return "Muitas tentativas. Aguarde e tente novamente.";
+    if (seconds < 60) {
+      return `Muitas tentativas. Aguarde ${Math.ceil(seconds)} segundos e tente novamente.`;
+    }
+    const minutes = Math.ceil(seconds / 60);
+    return `Muitas tentativas. Aguarde cerca de ${minutes} minuto${minutes === 1 ? "" : "s"} e tente novamente.`;
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -53,22 +30,34 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      let { error } = await supabase.auth.signInWithPassword({ email, password });
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 15_000);
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+        signal: controller.signal,
+      }).finally(() => window.clearTimeout(timeout));
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        retry_after?: number;
+      };
 
-      // Uma nova tentativa automática quando a 1ª falhou por motivo passageiro.
-      if (error && isTransient(error.message)) {
-        await new Promise((r) => setTimeout(r, 1200));
-        ({ error } = await supabase.auth.signInWithPassword({ email, password }));
-      }
-
-      if (error) {
-        setError(friendlyError(error.message));
+      if (!response.ok) {
+        setError(
+          response.status === 429
+            ? rateLimitMessage(data.retry_after)
+            : data.error || "Erro ao fazer login. Tente novamente."
+        );
         return;
       }
 
-      router.push("/");
-    } catch (err) {
-      setError(friendlyError(err instanceof Error ? err.message : ""));
+      router.replace("/");
+      router.refresh();
+    } catch {
+      setError("Conexão lenta com o servidor. Tente entrar novamente em alguns segundos.");
     } finally {
       setLoading(false);
     }
@@ -88,7 +77,11 @@ export default function LoginPage() {
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+            <div
+              className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive"
+              role="alert"
+              aria-live="polite"
+            >
               {error}
             </div>
           )}
@@ -101,6 +94,9 @@ export default function LoginPage() {
               placeholder="seu@email.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              inputMode="email"
+              maxLength={254}
               required
             />
           </div>
@@ -123,6 +119,8 @@ export default function LoginPage() {
               placeholder="Sua senha"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              maxLength={1024}
               required
             />
           </div>
