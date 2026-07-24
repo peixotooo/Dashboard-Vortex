@@ -29,9 +29,16 @@ export async function GET(req: NextRequest) {
   }
 
   if (search) {
-    query = query.or(
-      `buyer_name.ilike.%${search}%,ml_order_id.eq.${isNaN(Number(search)) ? 0 : Number(search)},ecc_numero.ilike.%${search}%`
-    );
+    const safeSearch = search
+      .replace(/[%_,().*"'\\]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 120);
+    if (safeSearch) {
+      query = query.or(
+        `buyer_name.ilike.%${safeSearch}%,ml_order_id.eq.${isNaN(Number(safeSearch)) ? 0 : Number(safeSearch)},ecc_numero.ilike.%${safeSearch}%`
+      );
+    }
   }
 
   query = query

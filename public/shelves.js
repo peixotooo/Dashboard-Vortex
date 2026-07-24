@@ -257,8 +257,118 @@
   function safeUrl(url) {
     if (!url) return "#";
     var u = String(url).trim();
-    if (u.indexOf("http://") === 0 || u.indexOf("https://") === 0 || u.indexOf("/") === 0) return u;
+    if (u.charAt(0) === "/" && u.charAt(1) !== "/" && u.charAt(1) !== "\\") {
+      return u;
+    }
+    try {
+      var parsed = new URL(u);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        return parsed.href;
+      }
+    } catch (e) {}
     return "#";
+  }
+
+  function safeUrlAttr(url) {
+    return escapeHtml(safeUrl(url));
+  }
+
+  function sanitizeRichHtml(value) {
+    if (!value) return "";
+    var template = document.createElement("template");
+    template.innerHTML = String(value).slice(0, 20000);
+    var allowed = {
+      A: 1, B: 1, BR: 1, EM: 1, I: 1, LI: 1, OL: 1, P: 1,
+      STRONG: 1, TABLE: 1, TBODY: 1, TD: 1, TFOOT: 1, TH: 1,
+      THEAD: 1, TR: 1, UL: 1
+    };
+    var discard = { SCRIPT: 1, STYLE: 1, SVG: 1, MATH: 1, IFRAME: 1, OBJECT: 1, EMBED: 1 };
+    var nodes = template.content.querySelectorAll("*");
+
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      var tag = node.tagName;
+      if (discard[tag]) {
+        node.remove();
+        continue;
+      }
+      if (!allowed[tag]) {
+        var parent = node.parentNode;
+        if (parent) {
+          while (node.firstChild) parent.insertBefore(node.firstChild, node);
+          parent.removeChild(node);
+        }
+        continue;
+      }
+
+      var attrs = Array.prototype.slice.call(node.attributes || []);
+      for (var j = 0; j < attrs.length; j++) {
+        var name = attrs[j].name.toLowerCase();
+        var keep =
+          (tag === "A" && (name === "href" || name === "title" || name === "target" || name === "rel")) ||
+          ((tag === "TH" || tag === "TD") && (name === "colspan" || name === "rowspan")) ||
+          (tag === "TH" && name === "scope");
+        if (!keep) node.removeAttribute(attrs[j].name);
+      }
+
+      if (tag === "A") {
+        var href = String(node.getAttribute("href") || "").trim();
+        var safeHref = "#";
+        if (href.charAt(0) === "/" && href.charAt(1) !== "/" && href.charAt(1) !== "\\") {
+          safeHref = href;
+        } else {
+          try {
+            var parsedHref = new URL(href);
+            if (
+              parsedHref.protocol === "http:" ||
+              parsedHref.protocol === "https:" ||
+              parsedHref.protocol === "mailto:" ||
+              parsedHref.protocol === "tel:"
+            ) {
+              safeHref = parsedHref.href;
+            }
+          } catch (e) {}
+        }
+        node.setAttribute("href", safeHref);
+        if (node.getAttribute("target") === "_blank") {
+          node.setAttribute("rel", "noopener noreferrer");
+        } else {
+          node.removeAttribute("target");
+          node.removeAttribute("rel");
+        }
+      }
+      if (tag === "TD" || tag === "TH") {
+        ["colspan", "rowspan"].forEach(function (name) {
+          var span = Number(node.getAttribute(name));
+          if (!Number.isInteger(span) || span < 1 || span > 20) {
+            node.removeAttribute(name);
+          }
+        });
+      }
+      if (tag === "TH" && !/^(row|col|rowgroup|colgroup)$/.test(node.getAttribute("scope") || "")) {
+        node.removeAttribute("scope");
+      }
+    }
+
+    return template.innerHTML;
+  }
+
+  function findSafeConfiguredAnchor(selector) {
+    if (typeof selector !== "string") return null;
+    var clean = selector.trim();
+    if (
+      !clean ||
+      clean.length > 180 ||
+      /^(?:html|head|body|\*)$/i.test(clean) ||
+      /[,{};]/.test(clean)
+    ) {
+      return null;
+    }
+    try {
+      return document.querySelector(clean);
+    } catch (e) {
+      return null;
+    }
   }
 
   // --- Cookie / Session helpers ---
@@ -738,7 +848,7 @@
       '<div class="product-block" data-vtx-product-id="' + escapeHtml(product.product_id) + '">' +
         '<div class="images">' +
           (badgeLabel ? '<div class="vtx-badge">' + escapeHtml(badgeLabel) + '</div>' : '') +
-          '<a href="' + safeUrl(link) + '">' +
+          '<a href="' + safeUrlAttr(link) + '">' +
             '<figure class="image' + (hasHoverImage ? " has-hover-image" : "") + '">' +
               '<img class="vtx-product-img vtx-product-img-primary" alt="' + escapeHtml(product.name) + '" src="' + escapeHtml(imgSrc) + '" data-vtx-primary-src="' + escapeHtml(imgSrc) + '" data-vtx-primary-fallback-src="' + escapeHtml(imgOriginal) + '" data-vtx-fallback-src="' + escapeHtml(imgOriginal) + '"' +
                 (hasHoverImage ? ' data-vtx-secondary-src="' + escapeHtml(imgSrc2) + '" data-vtx-secondary-fallback-src="' + escapeHtml(imgOriginal2) + '"' : '') +
@@ -750,7 +860,7 @@
           "</a>" +
         "</div>" +
         '<div class="description">' +
-          '<h3 class="name"><a href="' + safeUrl(link) + '">' + escapeHtml(product.name) + "</a></h3>" +
+          '<h3 class="name"><a href="' + safeUrlAttr(link) + '">' + escapeHtml(product.name) + "</a></h3>" +
           priceHTML +
         "</div>" +
       "</div>"
@@ -2173,7 +2283,7 @@
     if (!icon) return GB_ICONS.gift;
     if (typeof icon !== "string") return GB_ICONS.gift;
     if (icon.indexOf("http") === 0) {
-      return '<img src="' + escapeHtml(icon) + '" alt="" style="width:60%;height:60%;object-fit:contain">';
+      return '<img src="' + safeUrlAttr(icon) + '" alt="" style="width:60%;height:60%;object-fit:contain">';
     }
     if (GB_ICONS[icon]) return GB_ICONS[icon];
     return '<span style="font-size:18px">' + escapeHtml(icon) + '</span>';
@@ -2232,7 +2342,7 @@
     injectGiftBarModalOnce();
     var modal = document.getElementById("vtx-gb-modal");
     modal.querySelector(".vtx-gb-modal-title").textContent = title || "";
-    modal.querySelector(".vtx-gb-modal-body").innerHTML = bodyHtml || "";
+    modal.querySelector(".vtx-gb-modal-body").innerHTML = sanitizeRichHtml(bodyHtml);
     modal.classList.add("vtx-gb-modal-open");
     modal.setAttribute("aria-hidden", "false");
   }
@@ -2416,7 +2526,7 @@
     var anchor = null;
     var insertBefore = false;
     if (cfg.product_benefits_anchor) {
-      anchor = document.querySelector(cfg.product_benefits_anchor);
+      anchor = findSafeConfiguredAnchor(cfg.product_benefits_anchor);
     }
     if (!anchor && isKitProduct()) {
       var kitAnchor = findKitDropAnchor();
@@ -2835,7 +2945,7 @@
           var pdpAnchor = null;
           var pdpInsertBefore = false;
           if (cfg.product_benefits_anchor) {
-            pdpAnchor = document.querySelector(cfg.product_benefits_anchor);
+            pdpAnchor = findSafeConfiguredAnchor(cfg.product_benefits_anchor);
           }
           if (!pdpAnchor && isKitProduct()) {
             var kitAnchor2 = findKitDropAnchor();
@@ -3621,6 +3731,33 @@
     badge.style.boxShadow = "0 5px 14px rgba(0,0,0,.06)";
   }
 
+  function renderBadgeTemplate(target, template, replacements, leadingNode) {
+    target.replaceChildren();
+    if (leadingNode) target.appendChild(leadingNode);
+
+    var text = String(template || "");
+    var pattern = /\{(cashback|percent|viewers)\}/g;
+    var cursor = 0;
+    var match;
+    while ((match = pattern.exec(text))) {
+      if (match.index > cursor) {
+        target.appendChild(document.createTextNode(text.slice(cursor, match.index)));
+      }
+      var replacement = replacements[match[1]];
+      var node = match[1] === "percent"
+        ? document.createTextNode(String(replacement == null ? "" : replacement))
+        : document.createElement("strong");
+      if (node.nodeType === 1) {
+        node.textContent = String(replacement == null ? "" : replacement);
+      }
+      target.appendChild(node);
+      cursor = pattern.lastIndex;
+    }
+    if (cursor < text.length) {
+      target.appendChild(document.createTextNode(text.slice(cursor)));
+    }
+  }
+
   function createCashbackBadge(rule, fallbackPercent) {
     var badge = document.createElement("div");
     badge.className = "vtx-promo-tag vtx-promo-tag--cashback";
@@ -3632,9 +3769,10 @@
     }
     if (!amount) return null;
     var template = rule.badge_text || "Ganhe {cashback} em cashback ({percent}%)";
-    badge.innerHTML = template
-      .replace(/\{cashback\}/g, "<strong>" + formatBRLShort(amount) + "</strong>")
-      .replace(/\{percent\}/g, String(pct));
+    renderBadgeTemplate(badge, template, {
+      cashback: formatBRLShort(amount),
+      percent: pct,
+    });
     applyRuleColors(badge, rule, "rgba(34,197,94,.12)", "#15803d");
     bindPromoTagModal(badge, rule);
     return badge;
@@ -3755,9 +3893,9 @@
 
     function render(value) {
       var template = rule.badge_text || "{viewers} pessoas vendo este produto";
-      var html = '<span class="vtx-pulse-dot"></span>' +
-        template.replace(/\{viewers\}/g, "<strong>" + value + "</strong>");
-      badge.innerHTML = html;
+      var dot = document.createElement("span");
+      dot.className = "vtx-pulse-dot";
+      renderBadgeTemplate(badge, template, { viewers: value }, dot);
     }
 
     render(pickValue());
@@ -6413,9 +6551,12 @@
   function rvStars(rating, color, size) {
     var s = size || 16;
     var full = Math.round(Number(rating) || 0);
+    var safeColor = /^#[0-9a-f]{3}(?:[0-9a-f]{3})?(?:[0-9a-f]{2})?$/i.test(String(color || ""))
+      ? String(color)
+      : "#e6b800";
     var out = "";
     for (var i = 1; i <= 5; i++) {
-      var fill = i <= full ? color : "#e2e2e2";
+      var fill = i <= full ? safeColor : "#e2e2e2";
       out +=
         '<svg class="vtx-rv-star" width="' + s + '" height="' + s + '" viewBox="0 0 24 24" aria-hidden="true">' +
         '<path fill="' + fill + '" d="' + VTX_RV_STAR + '"/></svg>';
@@ -6524,8 +6665,17 @@
   function rvFindAnchor(settings) {
     var sel = settings && settings.anchor_selector;
     if (sel) {
-      var el = document.querySelector(sel);
-      if (el) return el;
+      try {
+        var el = document.querySelector(sel);
+        if (el) {
+          var existingMount = el.querySelector("[data-vtx-reviews-mount]");
+          if (existingMount) return existingMount;
+          var customMount = document.createElement("div");
+          customMount.setAttribute("data-vtx-reviews-mount", "");
+          el.appendChild(customMount);
+          return customMount;
+        }
+      } catch (e) {}
     }
     // Reaproveita o ponto onde ficava a Yourviews.
     var legacy = document.querySelector("#yv-reviews, .yv-reviews, .product-reviews, [data-reviews]");
@@ -6702,7 +6852,7 @@
     if (r.media && r.media.length) {
       media = '<div class="vtx-rv-media">' +
         r.media.map(function (m) {
-          return '<img loading="lazy" src="' + safeUrl(m.url) + '" data-vtx-rv-media="' + safeUrl(m.url) + '" data-vtx-rv-type="' + escapeHtml(m.type || "image") + '" alt="">';
+          return '<img loading="lazy" src="' + safeUrlAttr(m.url) + '" data-vtx-rv-media="' + safeUrlAttr(m.url) + '" data-vtx-rv-type="' + escapeHtml(m.type || "image") + '" alt="">';
         }).join("") +
         "</div>";
     }
@@ -6731,9 +6881,9 @@
     if (!gallery || !gallery.length) return "";
     var thumbs = gallery.map(function (g) {
       var inner = g.type === "video"
-        ? '<video src="' + safeUrl(g.url) + '" muted preload="metadata"></video><span class="vtx-rv-gplay">▶</span>'
-        : '<img loading="lazy" src="' + safeUrl(g.url) + '" alt="">';
-      return '<div class="vtx-rv-gthumb" data-vtx-rv-media="' + safeUrl(g.url) + '" data-vtx-rv-type="' + escapeHtml(g.type || "image") + '">' + inner + "</div>";
+        ? '<video src="' + safeUrlAttr(g.url) + '" muted preload="metadata"></video><span class="vtx-rv-gplay">▶</span>'
+        : '<img loading="lazy" src="' + safeUrlAttr(g.url) + '" alt="">';
+      return '<div class="vtx-rv-gthumb" data-vtx-rv-media="' + safeUrlAttr(g.url) + '" data-vtx-rv-type="' + escapeHtml(g.type || "image") + '">' + inner + "</div>";
     }).join("");
     var n = total || gallery.length;
     return '<div class="vtx-rv-gallery-wrap"><p class="vtx-rv-gallery-title">Fotos dos clientes (' + n + ')</p><div class="vtx-rv-gallery">' + thumbs + "</div></div>";
@@ -6864,8 +7014,8 @@
     var box = document.createElement("div");
     box.className = "vtx-rv-lightbox";
     box.innerHTML = type === "video"
-      ? '<video src="' + safeUrl(url) + '" controls autoplay></video>'
-      : '<img src="' + safeUrl(url) + '" alt="">';
+      ? '<video src="' + safeUrlAttr(url) + '" controls autoplay></video>'
+      : '<img src="' + safeUrlAttr(url) + '" alt="">';
     box.addEventListener("click", function () { box.remove(); });
     document.body.appendChild(box);
   }

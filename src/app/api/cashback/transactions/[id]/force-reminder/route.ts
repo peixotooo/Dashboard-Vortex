@@ -38,7 +38,14 @@ export async function POST(
       REATIVACAO: "reativacao_enviado_em",
       REATIVACAO_LEMBRETE: "reativacao_lembrete2",
     }[stage];
-    await auth!.admin.from("cashback_transactions").update({ [col]: null }).eq("id", id);
+    const { error: resetError } = await auth!.admin
+      .from("cashback_transactions")
+      .update({ [col]: null })
+      .eq("workspace_id", auth!.workspaceId)
+      .eq("id", id);
+    if (resetError) {
+      return NextResponse.json({ error: resetError.message }, { status: 500 });
+    }
   }
 
   const { data: cb } = await auth!.admin

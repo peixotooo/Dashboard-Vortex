@@ -122,11 +122,11 @@ export async function middleware(request: NextRequest) {
     return Promise.race([promise as Promise<T>, timeoutPromise]);
   };
 
-  // 2. Auth check via local session (reads JWT from cookie, no network call)
+  // 2. Auth check verified by Supabase (never trust the cookie payload alone).
   let user: import("@supabase/supabase-js").User | null = null;
   try {
-    const sessionResult = await withTimeout(supabase.auth.getSession(), 4000);
-    user = (sessionResult as { data: { session: { user: import("@supabase/supabase-js").User } | null } })?.data?.session?.user || null;
+    const userResult = await withTimeout(supabase.auth.getUser(), 4000);
+    user = userResult?.data.user ?? null;
   } catch {
     user = null;
   }

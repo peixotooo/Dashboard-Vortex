@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { CompletionRequiredError } from "./db";
+import {
+  getWorkspaceContext,
+  handleAuthError,
+} from "@/lib/api-auth";
 
 // Shared helpers used by every Mission Control API route.
 // Keeps auth + workspace scoping uniform so no route accidentally leaks data.
@@ -30,6 +34,13 @@ export type RouteContext = {
 export async function requireWorkspace(
   request: NextRequest
 ): Promise<RouteContext | NextResponse> {
+  let auth: { userId: string; workspaceId: string };
+  try {
+    auth = await getWorkspaceContext(request);
+  } catch (error) {
+    return handleAuthError(error);
+  }
+
   const supabase = createSupabase(request);
   const {
     data: { user },
@@ -37,29 +48,11 @@ export async function requireWorkspace(
   if (!user) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
-  const workspaceId = request.headers.get("x-workspace-id") || "";
-  if (!workspaceId) {
-    return NextResponse.json(
-      { error: "Workspace not specified" },
-      { status: 400 }
-    );
-  }
-
-  const { data: membership } = await supabase
-    .from("workspace_members")
-    .select("role")
-    .eq("workspace_id", workspaceId)
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (!membership) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
 
   return {
     supabase,
-    workspaceId,
-    userId: user.id,
+    workspaceId: auth.workspaceId,
+    userId: auth.userId,
     actor: user.email ?? user.id,
   };
 }

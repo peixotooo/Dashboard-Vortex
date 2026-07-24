@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { getDeliverable } from "@/lib/agent/memory";
+import {
+  AuthError,
+  getWorkspaceContext,
+  handleAuthError,
+} from "@/lib/api-auth";
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -24,14 +32,16 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    const { workspaceId } = await getWorkspaceContext(request);
+    if (!UUID_RE.test(id)) {
+      return NextResponse.json(
+        { error: "Deliverable not found" },
+        { status: 404 }
+      );
+    }
     const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-    const deliverable = await getDeliverable(supabase, id);
+    const deliverable = await getDeliverable(supabase, id, workspaceId);
     if (!deliverable)
       return NextResponse.json(
         { error: "Deliverable not found" },
@@ -40,8 +50,10 @@ export async function GET(
 
     return NextResponse.json({ deliverable });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message =
       error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[team/deliverables/:id]", message);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authRoute } from "@/lib/cashback/route-helpers";
+import { getDashboardOrigin } from "@/lib/security/dashboard-origin";
+import { readLimitedJson } from "@/lib/security/webhook-request";
 
 export const maxDuration = 15;
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function GET(request: NextRequest) {
   const { auth, error } = await authRoute(request);
@@ -32,7 +37,7 @@ export async function GET(request: NextRequest) {
     isAdmin ? c : { ...c, webhook_token: null }
   );
 
-  const origin = request.nextUrl.origin;
+  const origin = getDashboardOrigin(request.nextUrl.origin);
   const troqueWebhookUrl =
     isAdmin && troque?.webhook_token
       ? `${origin}/api/webhooks/troquecommerce?token=${troque.webhook_token}`
@@ -67,12 +72,23 @@ export async function PATCH(request: NextRequest) {
   const { auth, error } = await authRoute(request, { requireAdmin: true });
   if (error) return error;
 
-  const body = (await request.json().catch(() => ({}))) as {
+  const parsed = await readLimitedJson(request, 32 * 1024);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+  }
+  if (!parsed.value || typeof parsed.value !== "object" || Array.isArray(parsed.value)) {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  const body = (parsed.value || {}) as {
     vndaConnectionId?: string;
     enableCashback?: boolean;
   };
 
-  if (!body.vndaConnectionId || typeof body.enableCashback !== "boolean") {
+  if (
+    !body.vndaConnectionId ||
+    !UUID_RE.test(body.vndaConnectionId) ||
+    typeof body.enableCashback !== "boolean"
+  ) {
     return NextResponse.json({ error: "vndaConnectionId + enableCashback required" }, { status: 400 });
   }
 

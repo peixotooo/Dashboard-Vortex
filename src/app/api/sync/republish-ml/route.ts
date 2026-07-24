@@ -3,6 +3,7 @@ import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { ml } from "@/lib/ml/client";
 import type { HubProduct } from "@/types/hub";
+import { POST as pushToMercadoLivre } from "../push-ml/route";
 
 export const maxDuration = 120;
 
@@ -166,17 +167,18 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Call push-ml as internal fetch
+  // Reuse the authenticated route handler in-process. This keeps the same
+  // publishing contract without forwarding session cookies to a Host-derived
+  // URL or spending an extra external request.
   const pushBody = {
     skus: allSkus,
     category_id: categoryId,
     listing_type_id: listingTypeId,
   };
 
-  const origin = req.nextUrl.origin;
-  // Forward the caller's session cookie so push-ml's membership guard
-  // (getWorkspaceContext) authorizes this internal request.
-  const pushRes = await fetch(`${origin}/api/sync/push-ml`, {
+  const pushRequest = new NextRequest(
+    new URL("/api/sync/push-ml", req.nextUrl),
+    {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -184,7 +186,9 @@ export async function POST(req: NextRequest) {
       ...(req.headers.get("cookie") ? { cookie: req.headers.get("cookie")! } : {}),
     },
     body: JSON.stringify(pushBody),
-  });
+    }
+  );
+  const pushRes = await pushToMercadoLivre(pushRequest);
 
   const pushData = await pushRes.json();
 

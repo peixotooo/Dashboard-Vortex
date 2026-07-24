@@ -19,9 +19,19 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
+import {
+  consumeSecurityRateLimit,
+  getRequestClientIp,
+} from "@/lib/security/rate-limit";
+import {
+  getWebhookSecret,
+  readLimitedJson,
+  secretsEqual,
+} from "@/lib/security/webhook-request";
 
 export const runtime = "nodejs";
 export const maxDuration = 15;
+const MAX_WEBHOOK_BYTES = 64 * 1024;
 
 interface IportoEvent {
   message_id?: string;
@@ -115,9 +125,11 @@ async function verifySecret(
       res: NextResponse.json({ error: "webhook secret not configured" }, { status: 503 }),
     };
   }
-  const headerSecret = req.headers.get("x-webhook-secret");
-  const querySecret = req.nextUrl.searchParams.get("secret");
-  if (headerSecret === expectedSecret || querySecret === expectedSecret) {
+  const receivedSecret = getWebhookSecret(req, {
+    queryParam: "secret",
+    headers: ["x-webhook-secret"],
+  });
+  if (receivedSecret && secretsEqual(receivedSecret, expectedSecret)) {
     return { ok: true };
   }
   return {
@@ -128,9 +140,37 @@ async function verifySecret(
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json().catch(() => ({}))) as IportoEvent;
-    const messageId = extractWebhookMessageId(body);
-    const eventType = (body.event ?? body.type ?? body.status ?? "").toLowerCase();
+    const rateLimit = await consumeSecurityRateLimit({
+      scope: "webhook:iporto",
+      key: getRequestClientIp(req),
+      limit: 10_000,
+      windowSeconds: 60,
+    });
+    if (!rateLimit.allowed) {
+      return NextResponse.json({ ok: false, reason: "rate_limited" });
+    }
+
+    const parsedBody = await readLimitedJson(req, MAX_WEBHOOK_BYTES);
+    if (!parsedBody.ok) {
+      return NextResponse.json(
+        { error: parsedBody.error },
+        { status: parsedBody.status }
+      );
+    }
+    const body = parsedBody.value as IportoEvent;
+    const rawMessageId = extractWebhookMessageId(body);
+    const messageId =
+      typeof rawMessageId === "string" &&
+      rawMessageId.length <= 256 &&
+      !/[\u0000-\u001f\u007f]/.test(rawMessageId)
+        ? rawMessageId
+        : null;
+    const eventType = String(
+      body.event ?? body.type ?? body.status ?? ""
+    ).toLowerCase();
+    if (!/^[a-z0-9_-]{1,40}$/.test(eventType)) {
+      return NextResponse.json({ ok: true, ignored: "invalid event type" });
+    }
     console.log("[webhook/iporto] event received:", {
       has_message_id: !!messageId,
       event_type: eventType || null,

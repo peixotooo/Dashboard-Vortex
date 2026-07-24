@@ -53,7 +53,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     if (memoryId) {
-      await deleteMemoryById(supabase, memoryId);
+      await deleteMemoryById(supabase, memoryId, workspaceId);
       return NextResponse.json({ success: true });
     }
 

@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
-
-const BODY_LIMIT_BYTES = 16 * 1024;
-const RATE_WINDOW_MS = 60 * 1000;
+import {
+  consumeSecurityRateLimit,
+  getRequestClientIp,
+} from "@/lib/security/rate-limit";
 
 const allowedPublicHosts = new Set([
   "bulking.com.br",
@@ -12,13 +13,6 @@ const allowedPublicHosts = new Set([
   "localhost",
   "127.0.0.1",
 ]);
-
-type RateBucket = {
-  count: number;
-  resetAt: number;
-};
-
-const rateBuckets = new Map<string, RateBucket>();
 
 export function normalizeBioHost(value: string | null): string {
   return (value || "").split(",")[0].trim().toLowerCase().replace(/:\d+$/, "");
@@ -53,39 +47,27 @@ export function buildBioCorsHeaders(request: NextRequest): Record<string, string
 
   return {
     "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     Vary: "Origin",
   };
 }
 
-export function isBioRequestBodyTooLarge(request: NextRequest): boolean {
-  const length = Number(request.headers.get("content-length") || 0);
-  return Number.isFinite(length) && length > BODY_LIMIT_BYTES;
-}
-
 export function getBioClientIp(request: NextRequest): string {
-  return (
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip") ||
-    "unknown"
-  );
+  return getRequestClientIp(request);
 }
 
-export function checkBioRateLimit(
+export async function checkBioRateLimit(
   key: string,
-  limit: number,
-  now = Date.now()
-): boolean {
-  const current = rateBuckets.get(key);
-  if (!current || current.resetAt <= now) {
-    rateBuckets.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    return true;
-  }
-
-  current.count += 1;
-  return current.count <= limit;
+  limit: number
+): Promise<boolean> {
+  const result = await consumeSecurityRateLimit({
+    scope: "bio:public",
+    key,
+    limit,
+    windowSeconds: 60,
+  });
+  return result.allowed;
 }
 
 function cleanString(value: unknown, max: number): string | undefined {

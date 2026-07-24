@@ -7,8 +7,17 @@ import {
   type TroqueWebhookPayload,
 } from "@/lib/cashback/troquecommerce";
 import { getOrCreateConfig } from "@/lib/cashback/api";
+import {
+  consumeSecurityRateLimit,
+  getRequestClientIp,
+} from "@/lib/security/rate-limit";
+import {
+  getWebhookSecret,
+  readLimitedJson,
+} from "@/lib/security/webhook-request";
 
 export const maxDuration = 30;
+const MAX_WEBHOOK_BYTES = 512 * 1024;
 
 async function logWebhook(
   admin: ReturnType<typeof createAdminClient>,
@@ -35,9 +44,19 @@ async function logWebhook(
 }
 
 export async function POST(request: NextRequest) {
-  const token = request.nextUrl.searchParams.get("token");
+  const token = getWebhookSecret(request);
   if (!token) {
     return NextResponse.json({ error: "missing token" }, { status: 401 });
+  }
+
+  const rateLimit = await consumeSecurityRateLimit({
+    scope: "webhook:troquecommerce",
+    key: `${getRequestClientIp(request)}:${token}`,
+    limit: 300,
+    windowSeconds: 60,
+  });
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ ok: false, reason: "rate_limited" });
   }
 
   const admin = createAdminClient();
@@ -52,13 +71,15 @@ export async function POST(request: NextRequest) {
   }
   const workspaceId = conn.workspace_id as string;
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
+  const parsedBody = await readLimitedJson(request, MAX_WEBHOOK_BYTES);
+  if (!parsedBody.ok) {
     await logWebhook(admin, workspaceId, null, "error", { error: "invalid_json" });
-    return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
+    return NextResponse.json(
+      { error: parsedBody.error },
+      { status: parsedBody.status }
+    );
   }
+  const body = parsedBody.value;
 
   if (!isTroqueWebhookPayload(body)) {
     await logWebhook(admin, workspaceId, null, "error", { error: "invalid_payload" });

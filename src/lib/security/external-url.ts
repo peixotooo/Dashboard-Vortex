@@ -34,7 +34,7 @@ function isPrivateIp(hostname: string): boolean {
   );
 }
 
-export async function validatePublicHttpUrl(rawUrl: string, label = "url"): Promise<URL> {
+function parsePublicHttpUrl(rawUrl: string, label: string): URL {
   let url: URL;
   try {
     url = new URL(rawUrl);
@@ -59,7 +59,25 @@ export async function validatePublicHttpUrl(rawUrl: string, label = "url"): Prom
     throw new Error(`${label} must point to a public host`);
   }
 
+  return url;
+}
+
+export function normalizePublicBrowserUrl(rawUrl: unknown): string | null {
+  if (typeof rawUrl !== "string" || rawUrl.length > 2048) return null;
+  try {
+    return parsePublicHttpUrl(rawUrl.trim(), "url").toString();
+  } catch {
+    return null;
+  }
+}
+
+export async function validatePublicHttpUrl(rawUrl: string, label = "url"): Promise<URL> {
+  const url = parsePublicHttpUrl(rawUrl, label);
+  const hostname = url.hostname.toLowerCase();
   const addresses = await lookup(hostname, { all: true }).catch(() => []);
+  if (addresses.length === 0) {
+    throw new Error(`${label} could not be resolved`);
+  }
   if (addresses.some((address) => isPrivateIp(address.address))) {
     throw new Error(`${label} resolved to a private network address`);
   }
@@ -67,25 +85,66 @@ export async function validatePublicHttpUrl(rawUrl: string, label = "url"): Prom
   return url;
 }
 
+function stripSensitiveRedirectHeaders(init: RequestInit): RequestInit {
+  const headers = new Headers(init.headers);
+  headers.delete("authorization");
+  headers.delete("cookie");
+  headers.delete("proxy-authorization");
+  return { ...init, headers };
+}
+
 export async function fetchPublicHttpUrl(
   rawUrl: string,
   init: RequestInit = {},
-  options: { label?: string; maxRedirects?: number } = {}
+  options: {
+    label?: string;
+    maxRedirects?: number;
+    allowCrossOriginRedirects?: boolean;
+  } = {}
 ): Promise<Response> {
   const label = options.label || "url";
   let currentUrl = await validatePublicHttpUrl(rawUrl, label);
   const maxRedirects = options.maxRedirects ?? 3;
+  let currentInit = { ...init };
 
   for (let redirects = 0; redirects <= maxRedirects; redirects += 1) {
     const response = await fetch(currentUrl.toString(), {
-      ...init,
+      ...currentInit,
       redirect: "manual",
     });
 
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
       if (!location) throw new Error(`${label} redirected without a location`);
-      currentUrl = await validatePublicHttpUrl(new URL(location, currentUrl).toString(), label);
+      const nextUrl = await validatePublicHttpUrl(
+        new URL(location, currentUrl).toString(),
+        label
+      );
+      if (nextUrl.origin !== currentUrl.origin) {
+        if (options.allowCrossOriginRedirects === false) {
+          throw new Error(`${label} redirected to a different origin`);
+        }
+        currentInit = stripSensitiveRedirectHeaders(currentInit);
+      }
+
+      const method = (currentInit.method || "GET").toUpperCase();
+      if (
+        response.status === 303 ||
+        ((response.status === 301 || response.status === 302) &&
+          method === "POST")
+      ) {
+        const headers = new Headers(currentInit.headers);
+        headers.delete("content-length");
+        headers.delete("content-type");
+        currentInit = {
+          ...currentInit,
+          method: "GET",
+          body: undefined,
+          headers,
+        };
+      }
+
+      currentUrl = nextUrl;
       continue;
     }
 
@@ -101,9 +160,15 @@ export async function readPublicUrlBuffer(
     label?: string;
     maxBytes?: number;
     allowedContentTypes?: RegExp;
+    timeoutMs?: number;
   } = {}
 ): Promise<{ buffer: Buffer; contentType: string; finalUrl: string }> {
-  const response = await fetchPublicHttpUrl(rawUrl, {}, { label: options.label });
+  const timeoutMs = Math.max(500, Math.min(options.timeoutMs ?? 15_000, 60_000));
+  const response = await fetchPublicHttpUrl(
+    rawUrl,
+    { signal: AbortSignal.timeout(timeoutMs) },
+    { label: options.label }
+  );
   if (!response.ok) throw new Error(`Failed to download ${options.label || "url"}: HTTP ${response.status}`);
 
   const maxBytes = options.maxBytes ?? 20 * 1024 * 1024;
@@ -117,8 +182,29 @@ export async function readPublicUrlBuffer(
     throw new Error(`${options.label || "url"} has unsupported content type`);
   }
 
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.byteLength > maxBytes) throw new Error(`${options.label || "url"} is too large`);
+  if (!response.body) {
+    return { buffer: Buffer.alloc(0), contentType, finalUrl: response.url || rawUrl };
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    totalBytes += value.byteLength;
+    if (totalBytes > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error(`${options.label || "url"} is too large`);
+    }
+    chunks.push(value);
+  }
+
+  const buffer = Buffer.concat(
+    chunks.map((chunk) => Buffer.from(chunk)),
+    totalBytes
+  );
 
   return { buffer, contentType, finalUrl: response.url || rawUrl };
 }

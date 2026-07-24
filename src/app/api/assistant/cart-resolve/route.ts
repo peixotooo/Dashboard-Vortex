@@ -10,16 +10,19 @@
 //     NUNCA quantidade de estoque.
 
 import { NextRequest, NextResponse } from "next/server";
-import { buildCorsHeaders } from "@/lib/cors";
+import { getStorefrontCors } from "@/lib/cors";
 import { validateApiKey } from "@/lib/shelves/api-key";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getAssistantSettings } from "@/lib/assistant/settings";
 import { getCartVariants, normalizeSize } from "@/lib/assistant/catalog";
 import { hashIp } from "@/lib/assistant/guardrails";
 import { checkIpRateLimit } from "@/lib/assistant/rate-limit";
+import { getRequestClientIp } from "@/lib/security/rate-limit";
+import { readLimitedJson } from "@/lib/security/webhook-request";
 
 export const runtime = "nodejs";
 export const maxDuration = 20;
+const MAX_BODY_BYTES = 8 * 1024;
 
 interface Body {
   key?: unknown;
@@ -27,49 +30,61 @@ interface Body {
   size?: unknown;
 }
 
-function json(request: NextRequest, status: number, body: Record<string, unknown>) {
-  return NextResponse.json(body, { status, headers: buildCorsHeaders(request) });
+function json(headers: Record<string, string>, status: number, body: Record<string, unknown>) {
+  return NextResponse.json(body, { status, headers });
 }
 
 export async function OPTIONS(request: NextRequest) {
+  const cors = await getStorefrontCors(request);
   return new NextResponse(null, {
-    status: 204,
-    headers: { ...buildCorsHeaders(request), "Access-Control-Max-Age": "86400" },
+    status: cors.allowed ? 204 : 403,
+    headers: { ...cors.headers, "Access-Control-Max-Age": "86400" },
   });
 }
 
 export async function POST(request: NextRequest) {
-  let body: Body;
-  try {
-    body = (await request.json()) as Body;
-  } catch {
-    return json(request, 400, { ok: false, error: "invalid body" });
+  let corsResult = await getStorefrontCors(request);
+  let cors = corsResult.headers;
+  if (!corsResult.allowed) {
+    return json(cors, 403, { ok: false, error: "origin not allowed" });
   }
 
+  const parsed = await readLimitedJson(request, MAX_BODY_BYTES);
+  if (!parsed.ok) {
+    return json(cors, parsed.status, { ok: false, error: parsed.error });
+  }
+  const body =
+    parsed.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+      ? (parsed.value as Body)
+      : {};
+
   const auth = await validateApiKey(typeof body.key === "string" ? body.key : null);
-  if (!auth) return json(request, 401, { ok: false, error: "invalid key" });
+  if (!auth) return json(cors, 401, { ok: false, error: "invalid key" });
   const { workspaceId } = auth;
+
+  corsResult = await getStorefrontCors(request, workspaceId);
+  cors = corsResult.headers;
+  if (!corsResult.allowed) {
+    return json(cors, 403, { ok: false, error: "origin not allowed" });
+  }
 
   // Habilitado basta: o cart-resolve serve tanto o /chat (v2) quanto o
   // add-to-cart do widget de PDP (v1). Só devolve dado público (SKU de variante).
   const settings = await getAssistantSettings(workspaceId);
   if (!settings.enabled) {
-    return json(request, 403, { ok: false, error: "assistant disabled" });
+    return json(cors, 403, { ok: false, error: "assistant disabled" });
   }
 
-  const ip =
-    request.headers.get("x-real-ip")?.trim() ||
-    request.headers.get("x-forwarded-for")?.split(",").pop()?.trim() ||
-    "unknown";
-  if (!checkIpRateLimit(hashIp(ip))) {
-    return json(request, 429, { ok: false, error: "rate limited" });
+  const ip = getRequestClientIp(request);
+  if (!(await checkIpRateLimit(hashIp(ip)))) {
+    return json(cors, 429, { ok: false, error: "rate limited" });
   }
 
   const productId =
     typeof body.product_id === "string" && /^[\w-]{1,40}$/.test(body.product_id)
       ? body.product_id
       : null;
-  if (!productId) return json(request, 400, { ok: false, error: "invalid product_id" });
+  if (!productId) return json(cors, 400, { ok: false, error: "invalid product_id" });
 
   const wantSize =
     typeof body.size === "string" && body.size.trim()
@@ -85,7 +100,7 @@ export async function POST(request: NextRequest) {
     .eq("product_id", productId)
     .maybeSingle();
 
-  if (!prod) return json(request, 404, { ok: false, error: "product not found" });
+  if (!prod) return json(cors, 404, { ok: false, error: "product not found" });
 
   // Card público — vai em TODA resposta (inclusive as ok:false) pra o cliente
   // conseguir montar um seletor de tamanho ou uma mensagem clara sem re-buscar.
@@ -100,7 +115,7 @@ export async function POST(request: NextRequest) {
 
   const variants = await getCartVariants(workspaceId, productId);
   if (variants.length === 0) {
-    return json(request, 200, { ok: false, error: "no_variants", need_size: false, ...card });
+    return json(cors, 200, { ok: false, error: "no_variants", need_size: false, ...card });
   }
 
   // Escolhe a variante: pelo tamanho pedido (disponível primeiro), ou a única
@@ -112,7 +127,7 @@ export async function POST(request: NextRequest) {
     const matches = variants.filter((v) => v.size && normalizeSize(v.size) === wantSize);
     chosen = matches.find((v) => v.available) || matches[0] || null;
     if (!chosen) {
-      return json(request, 200, {
+      return json(cors, 200, {
         ok: false,
         error: "size_unavailable",
         need_size: true,
@@ -125,7 +140,7 @@ export async function POST(request: NextRequest) {
     chosen = variants.find((v) => v.available) || variants[0];
   } else {
     // Tem vários tamanhos e o cliente não escolheu → pede pra escolher
-    return json(request, 200, {
+    return json(cors, 200, {
       ok: false,
       error: "need_size",
       need_size: true,
@@ -135,7 +150,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (!chosen.available) {
-    return json(request, 200, {
+    return json(cors, 200, {
       ok: false,
       error: "unavailable",
       need_size: sized.length > 1,
@@ -144,7 +159,7 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  return json(request, 200, {
+  return json(cors, 200, {
     ok: true,
     sku: chosen.sku,
     size: chosen.size,

@@ -3,6 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { setContextToken } from "@/lib/meta-api";
 import { decrypt } from "@/lib/encryption";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { canAccessFeature } from "@/lib/features";
 
 interface AuthResult {
   userId: string;
@@ -18,9 +19,129 @@ const withTimeout = async <T>(promise: Promise<T> | T, timeoutMs: number): Promi
   return Promise.race([promise as Promise<T>, timeoutPromise]);
 };
 
+const API_FEATURE_REQUIREMENTS: Array<
+  [prefix: string, anyOfFeatures: string[]]
+> = [
+  ["/api/crm/email-templates", ["crm.email_templates"]],
+  ["/api/crm/cart-recovery", ["crm.cart_recovery"]],
+  ["/api/cart-recovery", ["crm.cart_recovery"]],
+  ["/api/crm/whatsapp", ["crm.whatsapp"]],
+  ["/api/promo-tags", ["loja.promo_tags"]],
+  ["/api/gift-request", ["loja.gift_request"]],
+  ["/api/gift-bar", ["loja.gift_bar"]],
+  ["/api/reviews", ["loja.reviews"]],
+  ["/api/assistant", ["loja.assistente"]],
+  ["/api/whatsapp-groups", ["crm.whatsapp_groups"]],
+  ["/api/cashback", ["crm.cashback"]],
+  ["/api/topbar", ["loja.topbar"]],
+  ["/api/coupons", ["loja.coupons"]],
+  ["/api/shelves", ["loja.shelves"]],
+  ["/api/products", ["loja.products"]],
+  ["/api/bio", ["canais.bio"]],
+  ["/api/instagram-accounts", ["meta_ads"]],
+  ["/api/instagram", ["instagram"]],
+  ["/api/mcp", ["meta_ads"]],
+  ["/api/google-ads", ["google_ads"]],
+  ["/api/tiktok-ads", ["tiktok_ads"]],
+  ["/api/tiktok", ["tiktok_ads"]],
+  ["/api/campaigns", ["meta_ads.campaigns"]],
+  ["/api/adsets", ["meta_ads.campaigns"]],
+  ["/api/ads", ["meta_ads.campaigns"]],
+  ["/api/audiences", ["meta_ads.audiences"]],
+  ["/api/creatives", ["meta_ads.creatives"]],
+  ["/api/accounts", ["meta_ads"]],
+  ["/api/auth", ["meta_ads"]],
+  ["/api/insights", ["meta_ads", "overview", "financeiro"]],
+  ["/api/ga4", ["ga4", "overview", "financeiro", "loja.vnda"]],
+  ["/api/agent", ["agent"]],
+  ["/api/pre-cadastro", ["hub.pre_cadastro"]],
+  ["/api/eccosys", ["hub"]],
+  ["/api/hub", ["hub"]],
+  ["/api/ml", ["hub"]],
+  ["/api/sync", ["hub"]],
+  ["/api/pricing", ["financeiro.pricing"]],
+  ["/api/simulador-comercial", ["financeiro.comercial"]],
+  ["/api/financeiro", ["financeiro"]],
+  ["/api/controladoria", ["controladoria"]],
+  ["/api/media", ["media"]],
+  ["/api/marketing", ["team.planning"]],
+  ["/api/team", ["team"]],
+  ["/api/comms", ["crm"]],
+  ["/api/crm", ["crm"]],
+  ["/api/checkout", ["overview", "crm"]],
+];
+
+function requiredFeaturesForRequest(request: NextRequest): string[] | null {
+  const pathname = new URL(request.url).pathname;
+  const match = API_FEATURE_REQUIREMENTS.find(
+    ([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
+  return match?.[1] ?? null;
+}
+
+function hasRequiredFeature(
+  requiredFeatures: string[] | null,
+  role: string | null,
+  features: string[] | null
+): boolean {
+  return (
+    !requiredFeatures ||
+    requiredFeatures.some((featureId) =>
+      canAccessFeature(featureId, role, features)
+    )
+  );
+}
+
+function normalizeOrigin(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" && url.hostname !== "localhost") return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+function trustedDashboardOrigins(request: NextRequest): Set<string> {
+  const values = [
+    new URL(request.url).origin,
+    process.env.NEXT_PUBLIC_APP_URL || "",
+    process.env.APP_URL || "",
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "",
+    ...(process.env.DASHBOARD_ALLOWED_ORIGINS || "").split(","),
+  ];
+  return new Set(
+    values
+      .map((value) => normalizeOrigin(value.trim()))
+      .filter((value): value is string => Boolean(value))
+  );
+}
+
+/**
+ * Cookie-authenticated browser mutations must originate from this dashboard.
+ * Origin-less server-to-server calls remain supported; Sec-Fetch-Site still
+ * rejects modern browsers attempting a cross-site form submission.
+ */
+export function assertTrustedMutationOrigin(request: NextRequest): void {
+  if (["GET", "HEAD", "OPTIONS"].includes(request.method.toUpperCase())) return;
+
+  const fetchSite = request.headers.get("sec-fetch-site")?.toLowerCase();
+  if (fetchSite === "cross-site") {
+    throw new AuthError("Cross-site request blocked", 403);
+  }
+
+  const originHeader = request.headers.get("origin");
+  if (!originHeader) return;
+  const origin = normalizeOrigin(originHeader);
+  if (!origin || !trustedDashboardOrigins(request).has(origin)) {
+    throw new AuthError("Untrusted request origin", 403);
+  }
+}
+
 export async function getAuthenticatedContext(
   request: NextRequest
 ): Promise<AuthResult> {
+  assertTrustedMutationOrigin(request);
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -58,7 +179,7 @@ export async function getAuthenticatedContext(
     withTimeout(
       supabase
         .from("workspace_members")
-        .select("role")
+        .select("role, features")
         .eq("workspace_id", workspaceId)
         .eq("user_id", user.id)
         .single(),
@@ -80,6 +201,20 @@ export async function getAuthenticatedContext(
 
   if (!membership) {
     throw new AuthError("Not a member of this workspace (or request timed out)", 403);
+  }
+
+  const requiredFeatures = requiredFeaturesForRequest(request);
+  if (
+    !hasRequiredFeature(
+      requiredFeatures,
+      membership.role ?? null,
+      membership.features ?? null
+    )
+  ) {
+    throw new AuthError(
+      `Feature access required: ${requiredFeatures?.join(" or ")}`,
+      403
+    );
   }
 
   const connection = (connectionResponse as any)?.data;
@@ -192,11 +327,12 @@ export async function setTokenForAccount(
 
 /**
  * Lightweight authenticated context for endpoints that don't need a Meta token.
- * Verifies the user session and workspace membership only.
+ * Verifies the user session, workspace membership, and mapped feature access.
  */
 export async function getWorkspaceContext(
   request: NextRequest
 ): Promise<{ userId: string; workspaceId: string }> {
+  assertTrustedMutationOrigin(request);
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -225,15 +361,34 @@ export async function getWorkspaceContext(
   const membership = await withTimeout(
     supabase
       .from("workspace_members")
-      .select("role")
+      .select("role, features")
       .eq("workspace_id", workspaceId)
       .eq("user_id", user.id)
       .single(),
     2000
   );
 
-  if (!(membership as { data?: unknown } | null)?.data) {
+  const membershipData = (
+    membership as {
+      data?: { role?: string | null; features?: string[] | null } | null;
+    } | null
+  )?.data;
+  if (!membershipData) {
     throw new AuthError("Not a member of this workspace (or request timed out)", 403);
+  }
+
+  const requiredFeatures = requiredFeaturesForRequest(request);
+  if (
+    !hasRequiredFeature(
+      requiredFeatures,
+      membershipData.role ?? null,
+      membershipData.features ?? null
+    )
+  ) {
+    throw new AuthError(
+      `Feature access required: ${requiredFeatures?.join(" or ")}`,
+      403
+    );
   }
 
   return { userId: user.id, workspaceId };
@@ -276,6 +431,7 @@ export async function getWorkspaceAdminContext(
 export async function getControladoriaContext(
   request: NextRequest
 ): Promise<{ userId: string; workspaceId: string }> {
+  assertTrustedMutationOrigin(request);
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

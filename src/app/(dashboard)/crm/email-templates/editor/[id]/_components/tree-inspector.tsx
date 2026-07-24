@@ -106,9 +106,8 @@ const NODE_LABEL: Record<LeafNode["type"], string> = {
 
 function htmlToText(html: string): string {
   if (typeof window === "undefined") return html;
-  const tmp = document.createElement("div");
-  tmp.innerHTML = html;
-  return (tmp.textContent || tmp.innerText || "").trim();
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  return (parsed.body.textContent || "").trim();
 }
 
 function escapeHtml(s: string): string {

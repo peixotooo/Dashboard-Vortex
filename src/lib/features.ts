@@ -202,6 +202,20 @@ export const FEATURES: Feature[] = [
     legacyParents: ["loja.gift_bar"],
   },
   {
+    id: "loja.gift_request",
+    label: "Pedir de Presente",
+    description: "Captação e gestão de pedidos de presente",
+    routes: ["/pedir-de-presente"],
+    parent: "loja",
+  },
+  {
+    id: "loja.topbar",
+    label: "Topbar",
+    description: "Campanhas da barra superior da loja",
+    routes: ["/topbar"],
+    parent: "loja",
+  },
+  {
     id: "loja.promo_tags",
     label: "Etiquetas Promo",
     description: "Etiquetas promocionais",
@@ -504,26 +518,35 @@ export function canAccessPath(
   role: string | null,
   features: string[] | null
 ): boolean {
-  if (role === "owner" || role === "admin") return true;
   const matchedId = getFeatureForPath(pathname);
   if (!matchedId) return true;
+  return canAccessFeature(matchedId, role, features);
+}
 
-  const matched = FEATURE_BY_ID.get(matchedId);
+export function canAccessFeature(
+  featureId: string,
+  role: string | null,
+  features: string[] | null
+): boolean {
+  if (role === "owner" || role === "admin") return true;
+
+  const matched = FEATURE_BY_ID.get(featureId);
+  if (!matched) return false;
   // Restricted: exige grant explícito. NULL não concede e não herda de pai.
-  if (matched?.restricted) return !!features && features.includes(matchedId);
+  if (matched.restricted) return !!features && features.includes(featureId);
 
   if (!features) return true;
 
-  if (features.includes(matchedId)) return true;
+  if (features.includes(featureId)) return true;
 
-  if (matched?.parent && features.includes(matched.parent)) return true;
-  if (matched?.legacyParents?.some((parentId) => features.includes(parentId))) {
+  if (matched.parent && features.includes(matched.parent)) return true;
+  if (matched.legacyParents?.some((parentId) => features.includes(parentId))) {
     return true;
   }
 
-  if (!matched?.parent) {
+  if (!matched.parent) {
     // matched is a parent — allow if user has any sub under it
-    const subs = SUBS_BY_PARENT.get(matchedId) || [];
+    const subs = SUBS_BY_PARENT.get(featureId) || [];
     if (subs.some((s) => features.includes(s.id))) return true;
   }
 

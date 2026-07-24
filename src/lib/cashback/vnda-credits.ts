@@ -67,8 +67,23 @@ async function vndaFetch(
   init: RequestInit
 ): Promise<VndaCreditOperationResult> {
   try {
-    const res = await fetch(`${cfg.baseUrl}${path}`, {
+    const baseUrl = new URL(cfg.baseUrl);
+    if (
+      baseUrl.origin !== DEFAULT_BASE_URL ||
+      (baseUrl.pathname !== "/" && baseUrl.pathname !== "") ||
+      baseUrl.search ||
+      baseUrl.hash
+    ) {
+      throw new Error("invalid_vnda_credits_base_url");
+    }
+    const requestUrl = new URL(path, `${DEFAULT_BASE_URL}/`);
+    if (requestUrl.origin !== DEFAULT_BASE_URL) {
+      throw new Error("invalid_vnda_credits_path");
+    }
+
+    const res = await fetch(requestUrl.toString(), {
       ...init,
+      redirect: "error",
       headers: {
         Authorization: `Bearer ${cfg.apiToken}`,
         "X-Shop-Host": cfg.shopHost,

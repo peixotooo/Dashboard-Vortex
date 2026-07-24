@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import {
+  getWorkspaceAdminContext,
+  getWorkspaceContext,
+  handleAuthError,
+} from "@/lib/api-auth";
 import { getWapiConfig, saveWapiConfig } from "@/lib/wapi-api";
+import { readLimitedJson } from "@/lib/security/webhook-request";
 
 export async function GET(request: NextRequest) {
   try {
@@ -21,12 +26,25 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { workspaceId } = await getWorkspaceContext(request);
+    const { workspaceId } = await getWorkspaceAdminContext(request);
 
-    const body = await request.json();
+    const parsed = await readLimitedJson(request, 32 * 1024);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    }
+    if (!parsed.value || typeof parsed.value !== "object" || Array.isArray(parsed.value)) {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+    const body = parsed.value as Record<string, unknown>;
     const { instanceId, token } = body;
 
-    if (!instanceId || !token) {
+    if (
+      typeof instanceId !== "string" ||
+      !/^[a-zA-Z0-9_-]{3,200}$/.test(instanceId) ||
+      typeof token !== "string" ||
+      token.length < 8 ||
+      token.length > 8192
+    ) {
       return NextResponse.json(
         { error: "Missing required fields: instanceId and token" },
         { status: 400 }

@@ -8,6 +8,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
+import { readPublicUrlBuffer } from "@/lib/security/external-url";
 
 // --- Provider Config ---
 
@@ -112,17 +113,15 @@ export async function callLLM(params: LLMParams): Promise<LLMResponse> {
 // --- Anthropic (direct) ---
 
 async function imageUrlToBase64(url: string): Promise<{ data: string; media_type: string }> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch image from URL: ${url}`);
-  const mediaType = res.headers.get("content-type") || "image/png";
-  if (!mediaType.startsWith("image/")) {
-    throw new Error(`URL is not an image (${mediaType}): ${url}`);
-  }
-  const arrayBuffer = await res.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
+  const { buffer, contentType } = await readPublicUrlBuffer(url, {
+    label: "agent image",
+    maxBytes: 10 * 1024 * 1024,
+    allowedContentTypes: /^image\/(?:jpeg|png|gif|webp)(?:;|$)/i,
+    timeoutMs: 10_000,
+  });
   return {
     data: buffer.toString("base64"),
-    media_type: mediaType,
+    media_type: contentType.split(";")[0].trim(),
   };
 }
 

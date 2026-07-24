@@ -186,7 +186,9 @@ export async function pushOrderToEccosys(
           .from("hub_orders")
           .update({ buyer_doc: fetched, updated_at: new Date().toISOString() })
           .eq("id", order.id);
-        console.log(`[push-order] Fetched buyer_doc from ML for order ${order.ml_order_id}: ${fetched}`);
+        console.log(
+          `[push-order] Fetched missing buyer document for order ${order.ml_order_id}`
+        );
       }
     } catch (err) {
       console.log(`[push-order] billing_info fallback failed: ${err instanceof Error ? err.message : String(err)}`);

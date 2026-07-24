@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { sanitizeReviewMedia } from "@/lib/reviews/sanitize";
+import { normalizePublicBrowserUrl } from "@/lib/security/external-url";
 
 // Lista avaliações pro admin (moderação). Filtros: status, product_id, source,
 // busca textual. Paginado. Autenticado (membro do workspace).
@@ -62,8 +64,8 @@ export async function POST(request: NextRequest) {
         source: "native",
         product_id: body.product_id ?? null,
         product_name: body.product_name ?? null,
-        product_url: body.product_url ?? null,
-        product_image: body.product_image ?? null,
+        product_url: normalizePublicBrowserUrl(body.product_url),
+        product_image: normalizePublicBrowserUrl(body.product_image),
         product_sku: body.product_sku ?? null,
         rating: body.rating,
         title: body.title ?? null,
@@ -72,7 +74,7 @@ export async function POST(request: NextRequest) {
         author_email: body.author_email ?? null,
         verified_buyer: Boolean(body.verified_buyer),
         custom_fields: body.custom_fields ?? [],
-        media: body.media ?? [],
+        media: sanitizeReviewMedia(body.media),
         status: body.status ?? "published",
       })
       .select("*")

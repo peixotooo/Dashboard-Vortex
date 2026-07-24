@@ -60,9 +60,25 @@ function safeExtension(filename: string): string {
     return ext.slice(0, 12) || "bin";
 }
 
-export function generateKey(filename: string, namespace = "creatives"): string {
+const MIME_EXTENSIONS: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "video/mp4": "mp4",
+    "video/quicktime": "mov",
+    "video/x-msvideo": "avi",
+    "video/webm": "webm",
+    "application/pdf": "pdf",
+};
+
+export function generateKey(
+    filename: string,
+    namespace = "creatives",
+    contentType?: string
+): string {
     const prefix = safePathSegment(namespace) || "creatives";
-    const ext = safeExtension(filename);
+    const ext = (contentType && MIME_EXTENSIONS[contentType]) || safeExtension(filename);
     return `${prefix}/${Date.now()}-${randomUUID()}.${ext}`;
 }
 

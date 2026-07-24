@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const key = generateKey(filename, `creatives/${workspaceId}`);
+        const key = generateKey(filename, `creatives/${workspaceId}`, mime_type);
         const signedUrl = await createPresignedUploadUrl(key, mime_type, Number(file_size));
 
         return NextResponse.json({ signedUrl, key, publicUrl: getPublicUrl(key) });

@@ -3,7 +3,7 @@
 // Shared helper for the async bulk-import flow into a Locaweb list:
 //
 //   1. Build a CSV from the contacts
-//   2. Upload to Supabase Storage on a public URL
+//   2. Upload to private Supabase Storage with a short-lived signed URL
 //   3. POST /contact_imports with { contact_import: { list_ids, url } }
 //   4. Poll the import status until "Finalizado" or "Erro inesperado"
 //
@@ -24,32 +24,11 @@ import {
   type LocawebCreds,
 } from "@/lib/locaweb/email-marketing";
 import { createAdminClient } from "@/lib/supabase-admin";
+import {
+  EMAIL_IMPORT_BUCKET,
+  uploadEmailImportCsv,
+} from "@/lib/email-templates/import-storage";
 import { randomUUID } from "crypto";
-
-const BUCKET = "email-list-imports";
-
-let bucketKnownToExist = false;
-
-async function ensureBucket() {
-  if (bucketKnownToExist) return;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!.trim().replace(/\/+$/, "");
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!.trim();
-  await fetch(`${url}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      id: BUCKET,
-      name: BUCKET,
-      public: true,
-      file_size_limit: 50 * 1024 * 1024,
-    }),
-  }).catch(() => {});
-  bucketKnownToExist = true;
-}
 
 function csvCell(v: string): string {
   if (!/[",\n\r]/.test(v)) return v;
@@ -63,25 +42,6 @@ function buildCsv(rows: Array<{ email: string; name?: string | null }>): string 
     lines.push(`${csvCell(r.email)},${csvCell(r.name?.trim() ?? "")}`);
   }
   return lines.join("\n");
-}
-
-async function uploadCsv(path: string, csv: string): Promise<string> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!.trim().replace(/\/+$/, "");
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!.trim();
-  const r = await fetch(`${url}/storage/v1/object/${BUCKET}/${path}`, {
-    method: "POST",
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "text/csv",
-      "x-upsert": "true",
-    },
-    body: csv,
-  });
-  if (!r.ok) {
-    throw new Error(`Falha ao subir CSV pro storage (HTTP ${r.status}).`);
-  }
-  return `${url}/storage/v1/object/public/${BUCKET}/${path}`;
 }
 
 export interface BulkImportResult {
@@ -125,25 +85,30 @@ export async function bulkImportContacts(
   if (opts.contacts.length === 0) {
     throw new Error("Nenhum contato para importar.");
   }
+  if (opts.contacts.length > 50_000) {
+    throw new Error("O limite é de 50.000 contatos por importação.");
+  }
   if (opts.list_ids.length === 0) {
     throw new Error("Nenhum list_id alvo informado.");
   }
 
-  await ensureBucket();
   const objectPath = `${opts.storage_prefix ?? "bulk"}/${Date.now()}-${randomUUID().slice(0, 8)}.csv`;
   const csv = buildCsv(opts.contacts);
-  const publicUrl = await uploadCsv(objectPath, csv);
+  const signedUrl = await uploadEmailImportCsv(objectPath, csv);
 
   let importRef;
   try {
     importRef = await createContactImport(opts.creds, {
       list_ids: opts.list_ids,
-      url: publicUrl,
+      url: signedUrl,
     });
   } catch (err) {
     // Cleanup the storage object — Locaweb never picked it up.
     const sb = createAdminClient();
-    await sb.storage.from(BUCKET).remove([objectPath]).catch(() => {});
+    await sb.storage
+      .from(EMAIL_IMPORT_BUCKET)
+      .remove([objectPath])
+      .catch(() => {});
     throw new Error(`Locaweb rejeitou a importação: ${(err as Error).message}`);
   }
 

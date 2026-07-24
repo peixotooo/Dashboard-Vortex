@@ -7,6 +7,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  getWorkspaceContext,
+  handleAuthError,
+} from "@/lib/api-auth";
 
 export function createSupabase(request: NextRequest): SupabaseClient {
   return createServerClient(
@@ -34,30 +38,19 @@ export type AuthContext = {
 export async function requireAuth(
   request: NextRequest
 ): Promise<AuthContext | NextResponse> {
+  let context: { userId: string; workspaceId: string };
+  try {
+    context = await getWorkspaceContext(request);
+  } catch (error) {
+    return handleAuthError(error);
+  }
+
   const supabase = createSupabase(request);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-  }
-  const workspaceId = request.headers.get("x-workspace-id") || "";
-  if (!workspaceId) {
-    return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
-  }
-
-  const { data: membership } = await supabase
-    .from("workspace_members")
-    .select("role")
-    .eq("workspace_id", workspaceId)
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (!membership) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  return { supabase, userId: user.id, workspaceId };
+  return {
+    supabase,
+    userId: context.userId,
+    workspaceId: context.workspaceId,
+  };
 }
 
 // Valida que o user é owner/admin do workspace. Retorna erro 403 caso contrário.

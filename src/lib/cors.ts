@@ -1,22 +1,31 @@
 import { NextRequest } from "next/server";
+import {
+  isKnownStorefrontOrigin,
+  isWorkspaceStorefrontOrigin,
+  storefrontCorsHeaders,
+} from "@/lib/security/storefront-origin";
 
-// CORS headers for public endpoints that are called from storefronts via
-// `navigator.sendBeacon`. sendBeacon ALWAYS sets credentials mode to
-// "include" — and the spec forbids `Access-Control-Allow-Origin: *` when
-// credentials are included. Browsers block the preflight, the POST never
-// fires, and our events vanish silently.
-//
-// Fix: echo the request's Origin header back, set
-// `Access-Control-Allow-Credentials: true`, and Vary on Origin so CDNs
-// cache per-origin. Storefront can be any domain (multi-tenant), so we
-// trust the Origin header — these endpoints are gated by API key anyway.
-export function buildCorsHeaders(request: NextRequest): Record<string, string> {
-  const origin = request.headers.get("origin") || "*";
+export interface StorefrontCorsResult {
+  allowed: boolean;
+  headers: Record<string, string>;
+}
+
+/**
+ * CORS for public storefront mutations. Browser origins must be known and,
+ * once the API key resolves, belong to that workspace. Origin-less callers
+ * remain supported for trusted server-side jobs, but receive no ACAO header.
+ */
+export async function getStorefrontCors(
+  request: NextRequest,
+  workspaceId?: string
+): Promise<StorefrontCorsResult> {
+  const origin = request.headers.get("origin");
+  const originAllowed = workspaceId
+    ? await isWorkspaceStorefrontOrigin(workspaceId, origin)
+    : await isKnownStorefrontOrigin(origin);
+
   return {
-    "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Credentials": "true",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Vary": "Origin",
+    allowed: !origin || originAllowed,
+    headers: storefrontCorsHeaders(origin, originAllowed),
   };
 }

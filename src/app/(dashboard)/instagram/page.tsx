@@ -205,8 +205,8 @@ function PostTypeIcon({ type }: { type: IGPost["type"] }) {
   return <ImageIcon className="h-3 w-3" />;
 }
 
-function mediaProxyUrl(url: string): string {
-  return `/api/instagram/media?url=${encodeURIComponent(url)}`;
+function mediaProxyUrl(url: string, workspaceId: string): string {
+  return `/api/instagram/media?workspace_id=${encodeURIComponent(workspaceId)}&url=${encodeURIComponent(url)}`;
 }
 
 function shortcodeMediaUrl(post: IGPost): string | null {
@@ -680,7 +680,7 @@ export default function InstagramPage() {
           </div>
 
           {/* Top posts por engajamento */}
-          {topPosts.length > 0 && (
+          {topPosts.length > 0 && workspace?.id && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">
@@ -697,7 +697,7 @@ export default function InstagramPage() {
                       rel="noopener noreferrer"
                       className="group overflow-hidden rounded-lg border transition-colors hover:border-pink-500/40"
                     >
-                      <PostThumb post={p} />
+                      <PostThumb post={p} workspaceId={workspace.id} />
                       <div className="space-y-1 p-2.5">
                         <div className="flex items-center gap-3 text-xs">
                           <span className="flex items-center gap-1 text-muted-foreground">
@@ -778,7 +778,13 @@ function ProfileHeader({
   );
 }
 
-function PostThumb({ post }: { post: IGPost }) {
+function PostThumb({
+  post,
+  workspaceId,
+}: {
+  post: IGPost;
+  workspaceId: string;
+}) {
   const [imageIndex, setImageIndex] = useState(0);
   const [videoBroken, setVideoBroken] = useState(false);
   const imageCandidates = [post.displayUrl, shortcodeMediaUrl(post)].filter(
@@ -803,7 +809,7 @@ function PostThumb({ post }: { post: IGPost }) {
     return (
       <div className="relative aspect-square overflow-hidden bg-muted">
         <video
-          src={mediaProxyUrl(post.videoUrl!)}
+          src={mediaProxyUrl(post.videoUrl!, workspaceId)}
           className="h-full w-full object-cover"
           muted
           playsInline
@@ -821,7 +827,7 @@ function PostThumb({ post }: { post: IGPost }) {
     <div className="relative aspect-square overflow-hidden bg-muted">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={mediaProxyUrl(imageUrl!)}
+        src={mediaProxyUrl(imageUrl!, workspaceId)}
         alt={post.caption || "Post do Instagram"}
         className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
         referrerPolicy="no-referrer"

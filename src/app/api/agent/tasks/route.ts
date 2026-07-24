@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import {
+  AuthError,
+  getWorkspaceContext,
+  handleAuthError,
+} from "@/lib/api-auth";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -19,12 +24,8 @@ function createSupabase(request: NextRequest) {
 // GET /api/agent/tasks?conversation_id=xxx&status=done&since=2026-03-09T00:00:00Z
 export async function GET(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
     const url = new URL(request.url);
     const conversationId = url.searchParams.get("conversation_id");
@@ -41,6 +42,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from("agent_tasks")
       .select("id, title, status, completed_at, agent:agents!agent_tasks_agent_id_fkey(name, slug)")
+      .eq("workspace_id", workspaceId)
       .eq("conversation_id", conversationId)
       .order("updated_at", { ascending: false })
       .limit(10);
@@ -58,7 +60,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ tasks: data || [] });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[agent/tasks]", message);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

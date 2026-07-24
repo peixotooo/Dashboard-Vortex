@@ -129,6 +129,44 @@ const EDITABLE: (keyof Omit<ReviewSettings, "workspace_id">)[] = [
   "ads_enabled",
 ];
 
+const SAFE_COLOR_RE = /^#[0-9a-f]{3}(?:[0-9a-f]{3})?(?:[0-9a-f]{2})?$/i;
+const SAFE_ANCHOR_RE =
+  /^(?:#[A-Za-z][\w-]*|\.[A-Za-z][\w-]*|\[data-[a-z0-9_-]+(?:=(?:"[^"<>]{1,80}"|'[^'<>]{1,80}'|[A-Za-z0-9_-]+))?\])$/i;
+
+function safeColor(value: unknown, fallback: string): string {
+  return typeof value === "string" && SAFE_COLOR_RE.test(value.trim())
+    ? value.trim()
+    : fallback;
+}
+
+function safeAnchorSelector(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string") return null;
+  const selector = value.trim();
+  return selector.length <= 120 && SAFE_ANCHOR_RE.test(selector)
+    ? selector
+    : null;
+}
+
+function sanitizeWidgetSettings(settings: ReviewSettings): ReviewSettings {
+  return {
+    ...settings,
+    accent_color: safeColor(
+      settings.accent_color,
+      DEFAULT_REVIEW_SETTINGS.accent_color
+    ),
+    star_color: safeColor(
+      settings.star_color,
+      DEFAULT_REVIEW_SETTINGS.star_color
+    ),
+    anchor_selector: safeAnchorSelector(settings.anchor_selector),
+    reviews_per_page: Math.max(
+      1,
+      Math.min(50, Number(settings.reviews_per_page) || 10)
+    ),
+  };
+}
+
 export async function getReviewSettings(workspaceId: string): Promise<ReviewSettings> {
   const admin = createAdminClient();
   const { data } = await admin
@@ -138,18 +176,21 @@ export async function getReviewSettings(workspaceId: string): Promise<ReviewSett
     .maybeSingle();
 
   if (!data) {
-    return { workspace_id: workspaceId, ...DEFAULT_REVIEW_SETTINGS };
+    return sanitizeWidgetSettings({
+      workspace_id: workspaceId,
+      ...DEFAULT_REVIEW_SETTINGS,
+    });
   }
   const row = data as ReviewSettings;
   // Mensagens da régua: null = "usar a copy padrão". Coalesce pra que o admin
   // mostre exatamente o que será enviado (e o ruler já usa o mesmo fallback).
-  return {
+  return sanitizeWidgetSettings({
     ...row,
     request_message_template: row.request_message_template ?? DEFAULT_REVIEW_SETTINGS.request_message_template,
     request_reminder_message: row.request_reminder_message ?? DEFAULT_REVIEW_SETTINGS.request_reminder_message,
     request_reminder_2_message: row.request_reminder_2_message ?? DEFAULT_REVIEW_SETTINGS.request_reminder_2_message,
     form_fields: row.form_fields ?? DEFAULT_FORM_FIELDS,
-  };
+  });
 }
 
 export async function upsertReviewSettings(
@@ -160,7 +201,24 @@ export async function upsertReviewSettings(
 
   const clean: Record<string, unknown> = {};
   for (const key of EDITABLE) {
-    if (key in patch && patch[key] !== undefined) clean[key] = patch[key];
+    if (!(key in patch) || patch[key] === undefined) continue;
+    if (key === "accent_color") {
+      clean[key] = safeColor(
+        patch[key],
+        DEFAULT_REVIEW_SETTINGS.accent_color
+      );
+    } else if (key === "star_color") {
+      clean[key] = safeColor(
+        patch[key],
+        DEFAULT_REVIEW_SETTINGS.star_color
+      );
+    } else if (key === "anchor_selector") {
+      clean[key] = safeAnchorSelector(patch[key]);
+    } else if (key === "reviews_per_page") {
+      clean[key] = Math.max(1, Math.min(50, Number(patch[key]) || 10));
+    } else {
+      clean[key] = patch[key];
+    }
   }
   clean.workspace_id = workspaceId;
   clean.updated_at = new Date().toISOString();
@@ -186,8 +244,8 @@ export async function upsertReviewSettings(
   }
 
   if (error) throw new Error(error.message);
-  return {
+  return sanitizeWidgetSettings({
     ...(data as ReviewSettings),
     form_fields: (data as ReviewSettings).form_fields ?? DEFAULT_FORM_FIELDS,
-  };
+  });
 }

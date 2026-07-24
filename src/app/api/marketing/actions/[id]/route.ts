@@ -3,6 +3,10 @@ import { createServerClient } from "@supabase/ssr";
 import { getWorkspaceContext, handleAuthError, AuthError } from "@/lib/api-auth";
 import { getMarketingAction, updateMarketingAction, deleteMarketingAction, getCategoryColor } from "@/lib/agent/memory";
 import { syncMarketingToProjectContext } from "@/lib/agent/marketing-sync";
+import { readLimitedJson } from "@/lib/security/webhook-request";
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -25,19 +29,22 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
     const { id } = await params;
-    const action = await getMarketingAction(supabase, id);
+    if (!UUID_RE.test(id)) {
+      return NextResponse.json({ error: "Action not found" }, { status: 404 });
+    }
+    const action = await getMarketingAction(supabase, id, workspaceId);
     if (!action) return NextResponse.json({ error: "Action not found" }, { status: 404 });
 
     return NextResponse.json({ action: { ...action, color: getCategoryColor(action.category) } });
   } catch (error) {
     if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[marketing/actions/:id]", message);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
@@ -51,8 +58,32 @@ export async function PUT(
     const supabase = createSupabase(request);
 
     const { id } = await params;
-    const body = await request.json();
-    const action = await updateMarketingAction(supabase, id, body);
+    if (!UUID_RE.test(id)) {
+      return NextResponse.json({ error: "Action not found" }, { status: 404 });
+    }
+    const parsed = await readLimitedJson(request, 128 * 1024);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    }
+    const body =
+      parsed.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+        ? (parsed.value as {
+            title?: string;
+            description?: string;
+            category?: string;
+            planning_type?: "social" | "performance";
+            start_date?: string;
+            end_date?: string;
+            status?: string;
+            content?: object;
+          })
+        : {};
+    const action = await updateMarketingAction(
+      supabase,
+      id,
+      body,
+      workspaceId
+    );
 
     // Sync to project context (non-blocking)
     syncMarketingToProjectContext(supabase, workspaceId).catch(() => {});
@@ -61,7 +92,8 @@ export async function PUT(
   } catch (error) {
     if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[marketing/actions/:id]", message);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
@@ -75,7 +107,10 @@ export async function DELETE(
     const supabase = createSupabase(request);
 
     const { id } = await params;
-    await deleteMarketingAction(supabase, id);
+    if (!UUID_RE.test(id)) {
+      return NextResponse.json({ error: "Action not found" }, { status: 404 });
+    }
+    await deleteMarketingAction(supabase, id, workspaceId);
 
     // Sync to project context (non-blocking)
     syncMarketingToProjectContext(supabase, workspaceId).catch(() => {});
@@ -84,6 +119,7 @@ export async function DELETE(
   } catch (error) {
     if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[marketing/actions/:id]", message);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

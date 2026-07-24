@@ -1,4 +1,5 @@
 import { decrypt } from "@/lib/encryption";
+import { fetchPublicHttpUrl } from "@/lib/security/external-url";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
@@ -8,6 +9,73 @@ import { cookies } from "next/headers";
 export interface VndaConfig {
   apiToken: string;
   storeHost: string;
+}
+
+const VNDA_API_ORIGIN = "https://api.vnda.com.br";
+
+function normalizeVndaStoreHost(rawHost: string): string {
+  const raw = rawHost.trim().toLowerCase();
+  const parsed = new URL(raw.includes("://") ? raw : `https://${raw}`);
+  const labels = parsed.hostname.split(".");
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.username ||
+    parsed.password ||
+    parsed.port ||
+    (parsed.pathname !== "/" && parsed.pathname !== "") ||
+    parsed.search ||
+    parsed.hash ||
+    parsed.hostname.length > 253 ||
+    labels.length < 2 ||
+    labels.some(
+      (label) =>
+        !label ||
+        label.length > 63 ||
+        !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label)
+    )
+  ) {
+    throw new Error("Invalid VNDA store host");
+  }
+  return parsed.hostname;
+}
+
+function buildVndaStoreUrl(config: VndaConfig, path: string): string {
+  return new URL(path, `https://${normalizeVndaStoreHost(config.storeHost)}`).toString();
+}
+
+function isOfficialVndaApiUrl(rawUrl: string): boolean {
+  return new URL(rawUrl).origin === VNDA_API_ORIGIN;
+}
+
+export async function fetchVndaApiUrl(
+  config: VndaConfig,
+  rawUrl: string,
+  init: RequestInit = {}
+): Promise<Response> {
+  const url = new URL(rawUrl);
+  const storeOrigin = `https://${normalizeVndaStoreHost(config.storeHost)}`;
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.port ||
+    !url.pathname.startsWith("/api/v2/")
+  ) {
+    throw new Error("Invalid VNDA API URL");
+  }
+
+  if (url.origin === VNDA_API_ORIGIN) {
+    return fetch(url.toString(), { ...init, redirect: "error" });
+  }
+  if (url.origin !== storeOrigin) {
+    throw new Error("VNDA API URL does not match the configured store");
+  }
+
+  return fetchPublicHttpUrl(url.toString(), init, {
+    label: "VNDA store endpoint",
+    maxRedirects: 2,
+    allowCrossOriginRedirects: false,
+  });
 }
 
 export interface VndaOrder {
@@ -194,7 +262,7 @@ export async function getVndaConfig(workspaceId?: string): Promise<VndaConfig | 
       if (data?.api_token && data?.store_host) {
         return {
           apiToken: decrypt(data.api_token),
-          storeHost: data.store_host,
+          storeHost: normalizeVndaStoreHost(data.store_host),
         };
       }
     } catch {
@@ -206,7 +274,11 @@ export async function getVndaConfig(workspaceId?: string): Promise<VndaConfig | 
   const token = process.env.VNDA_API_TOKEN;
   const host = process.env.VNDA_STORE_HOST;
   if (token && host) {
-    return { apiToken: token, storeHost: host };
+    try {
+      return { apiToken: token, storeHost: normalizeVndaStoreHost(host) };
+    } catch {
+      return null;
+    }
   }
 
   return null;
@@ -223,16 +295,24 @@ export async function getVndaConfigAdmin(workspaceId: string): Promise<VndaConfi
     .single();
 
   if (data?.api_token && data?.store_host) {
-    return {
-      apiToken: decrypt(data.api_token as string),
-      storeHost: data.store_host as string,
-    };
+    try {
+      return {
+        apiToken: decrypt(data.api_token as string),
+        storeHost: normalizeVndaStoreHost(data.store_host as string),
+      };
+    } catch {
+      return null;
+    }
   }
 
   const token = process.env.VNDA_API_TOKEN;
   const host = process.env.VNDA_STORE_HOST;
   if (token && host) {
-    return { apiToken: token, storeHost: host };
+    try {
+      return { apiToken: token, storeHost: normalizeVndaStoreHost(host) };
+    } catch {
+      return null;
+    }
   }
 
   return null;
@@ -257,12 +337,13 @@ export async function getVndaOrderShipping(
   orderCode: string
 ): Promise<VndaOrderShipping | null> {
   try {
-    const res = await fetch(
+    const res = await fetchVndaApiUrl(
+      config,
       `https://api.vnda.com.br/api/v2/orders/${encodeURIComponent(orderCode)}`,
       {
         headers: {
           Authorization: `Bearer ${config.apiToken}`,
-          "X-Shop-Host": config.storeHost,
+          "X-Shop-Host": normalizeVndaStoreHost(config.storeHost),
           Accept: "application/json",
         },
       }
@@ -309,11 +390,11 @@ async function vndaRequest<T>(
     Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
   }
 
-  const res = await fetch(url.toString(), {
+  const res = await fetchVndaApiUrl(config, url.toString(), {
     headers: {
       Authorization: `Bearer ${config.apiToken}`,
       Accept: "application/json",
-      "X-Shop-Host": config.storeHost,
+      "X-Shop-Host": normalizeVndaStoreHost(config.storeHost),
     },
   });
 
@@ -528,28 +609,34 @@ export async function searchVndaProducts(
   const qs = new URLSearchParams(searchParams).toString();
 
   // Try store-scoped URL (more reliable for VNDA search)
-  const storeUrl = `https://${config.storeHost}/api/v2/products/search?${qs}`;
+  const storeUrl = buildVndaStoreUrl(
+    config,
+    `/api/v2/products/search?${qs}`
+  );
   const headers = {
     Authorization: `Bearer ${config.apiToken}`,
     Accept: "application/json",
   };
 
   try {
-    let res = await fetch(storeUrl, { headers });
+    let res = await fetchVndaApiUrl(config, storeUrl, { headers });
 
     // If auth fails, retry without auth (search endpoint may be public)
     if (res.status === 401 || res.status === 403) {
-      res = await fetch(storeUrl, { headers: { Accept: "application/json" } });
+      res = await fetchVndaApiUrl(config, storeUrl, {
+        headers: { Accept: "application/json" },
+      });
     }
 
     if (!res.ok) {
       // Last resort: try the global VNDA API URL
-      res = await fetch(
+      res = await fetchVndaApiUrl(
+        config,
         `https://api.vnda.com.br/api/v2/products/search?${qs}`,
         {
           headers: {
             ...headers,
-            "X-Shop-Host": config.storeHost,
+            "X-Shop-Host": normalizeVndaStoreHost(config.storeHost),
           },
         }
       );
@@ -665,14 +752,17 @@ async function fetchVndaProductDetail(
     Accept: "application/json",
   };
   const urls = [
-    `https://${config.storeHost}/api/v2/products/${productId}`,
+    buildVndaStoreUrl(config, `/api/v2/products/${productId}`),
     `https://api.vnda.com.br/api/v2/products/${productId}`,
   ];
   for (const url of urls) {
     try {
-      const res = await fetch(url, {
-        headers: url.includes("api.vnda.com.br")
-          ? { ...headers, "X-Shop-Host": config.storeHost }
+      const res = await fetchVndaApiUrl(config, url, {
+        headers: isOfficialVndaApiUrl(url)
+          ? {
+              ...headers,
+              "X-Shop-Host": normalizeVndaStoreHost(config.storeHost),
+            }
           : headers,
       });
       if (!res.ok) continue;
@@ -706,8 +796,14 @@ export async function getVndaStockByReference(
   };
 
   const tryUrls = [
-    `https://${config.storeHost}/api/v2/products?reference=${encodeURIComponent(ref)}&per_page=5`,
-    `https://${config.storeHost}/api/v2/products?q=${encodeURIComponent(ref)}&per_page=10`,
+    buildVndaStoreUrl(
+      config,
+      `/api/v2/products?reference=${encodeURIComponent(ref)}&per_page=5`
+    ),
+    buildVndaStoreUrl(
+      config,
+      `/api/v2/products?q=${encodeURIComponent(ref)}&per_page=10`
+    ),
     `https://api.vnda.com.br/api/v2/products?reference=${encodeURIComponent(ref)}&per_page=5`,
   ];
 
@@ -715,9 +811,12 @@ export async function getVndaStockByReference(
 
   for (const url of tryUrls) {
     try {
-      const res = await fetch(url, {
-        headers: url.includes("api.vnda.com.br")
-          ? { ...headers, "X-Shop-Host": config.storeHost }
+      const res = await fetchVndaApiUrl(config, url, {
+        headers: isOfficialVndaApiUrl(url)
+          ? {
+              ...headers,
+              "X-Shop-Host": normalizeVndaStoreHost(config.storeHost),
+            }
           : headers,
       });
       if (!res.ok) continue;
@@ -859,17 +958,21 @@ export async function updateVndaSalePriceByReference(
 
   // 1. GET detail pra extrair variantes
   const detailUrls = [
-    `https://${config.storeHost}/api/v2/products/${productId}`,
+    buildVndaStoreUrl(config, `/api/v2/products/${productId}`),
     `https://api.vnda.com.br/api/v2/products/${productId}`,
   ];
   let detail: { variants?: unknown } | null = null;
   for (const url of detailUrls) {
     try {
-      const res = await fetch(url, {
+      const res = await fetchVndaApiUrl(config, url, {
         headers: {
           Authorization: `Bearer ${config.apiToken}`,
           Accept: "application/json",
-          ...(url.includes("api.vnda.com.br") ? { "X-Shop-Host": config.storeHost } : {}),
+          ...(isOfficialVndaApiUrl(url)
+            ? {
+                "X-Shop-Host": normalizeVndaStoreHost(config.storeHost),
+              }
+            : {}),
         },
       });
       if (res.ok) {
@@ -915,20 +1018,27 @@ export async function updateVndaSalePriceByReference(
   const failures: string[] = [];
   for (const vid of variantIds) {
     const urls = [
-      `https://${config.storeHost}/api/v2/products/${productId}/variants/${vid}`,
+      buildVndaStoreUrl(
+        config,
+        `/api/v2/products/${productId}/variants/${vid}`
+      ),
       `https://api.vnda.com.br/api/v2/products/${productId}/variants/${vid}`,
     ];
     let ok = false;
     let lastError = "";
     for (const url of urls) {
       try {
-        const res = await fetch(url, {
+        const res = await fetchVndaApiUrl(config, url, {
           method: "PATCH",
           headers: {
             Authorization: `Bearer ${config.apiToken}`,
             Accept: "application/json",
             "Content-Type": "application/json",
-            ...(url.includes("api.vnda.com.br") ? { "X-Shop-Host": config.storeHost } : {}),
+            ...(isOfficialVndaApiUrl(url)
+              ? {
+                  "X-Shop-Host": normalizeVndaStoreHost(config.storeHost),
+                }
+              : {}),
           },
           body: JSON.stringify(body),
         });

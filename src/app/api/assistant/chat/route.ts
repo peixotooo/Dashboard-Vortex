@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
-import { buildCorsHeaders } from "@/lib/cors";
+import { getStorefrontCors } from "@/lib/cors";
 import { validateApiKey } from "@/lib/shelves/api-key";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getVndaConfigAdmin } from "@/lib/vnda-api";
@@ -25,6 +25,8 @@ import {
 import { checkIpRateLimit, getDailyMessageCount } from "@/lib/assistant/rate-limit";
 import { runAssistantTurn } from "@/lib/assistant/harness";
 import type { AssistantHistoryMessage } from "@/lib/assistant/types";
+import { getRequestClientIp } from "@/lib/security/rate-limit";
+import { readLimitedJson } from "@/lib/security/webhook-request";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -33,6 +35,7 @@ const BUSY_REPLY =
   "Estou recebendo muitas mensagens agora. Tenta de novo em um minuto.";
 const SESSION_LIMIT_REPLY =
   "Chegamos ao limite desta conversa. Se ainda precisar de ajuda, fale com o atendimento oficial da loja.";
+const MAX_BODY_BYTES = 32 * 1024;
 
 interface ChatBody {
   key?: unknown;
@@ -46,64 +49,74 @@ interface ChatBody {
 }
 
 function json(
-  request: NextRequest,
+  headers: Record<string, string>,
   status: number,
   body: Record<string, unknown>
 ): NextResponse {
   return NextResponse.json(body, {
     status,
-    headers: buildCorsHeaders(request),
+    headers,
   });
 }
 
 export async function OPTIONS(request: NextRequest) {
+  const cors = await getStorefrontCors(request);
   return new NextResponse(null, {
-    status: 204,
+    status: cors.allowed ? 204 : 403,
     headers: {
-      ...buildCorsHeaders(request),
+      ...cors.headers,
       "Access-Control-Max-Age": "86400",
     },
   });
 }
 
 export async function POST(request: NextRequest) {
-  let body: ChatBody;
-  try {
-    body = (await request.json()) as ChatBody;
-  } catch {
-    return json(request, 400, { ok: false, error: "invalid body" });
+  let corsResult = await getStorefrontCors(request);
+  let cors = corsResult.headers;
+  if (!corsResult.allowed) {
+    return json(cors, 403, { ok: false, error: "origin not allowed" });
   }
+
+  const parsed = await readLimitedJson(request, MAX_BODY_BYTES);
+  if (!parsed.ok) {
+    return json(cors, parsed.status, { ok: false, error: parsed.error });
+  }
+  const body =
+    parsed.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+      ? (parsed.value as ChatBody)
+      : {};
 
   // 1. API key → workspace
   const auth = await validateApiKey(typeof body.key === "string" ? body.key : null);
   if (!auth) {
-    return json(request, 401, { ok: false, error: "invalid key" });
+    return json(cors, 401, { ok: false, error: "invalid key" });
   }
   const { workspaceId } = auth;
+
+  corsResult = await getStorefrontCors(request, workspaceId);
+  cors = corsResult.headers;
+  if (!corsResult.allowed) {
+    return json(cors, 403, { ok: false, error: "origin not allowed" });
+  }
 
   // 2. Feature ligada?
   const settings = await getAssistantSettings(workspaceId);
   if (!settings.enabled) {
-    return json(request, 403, { ok: false, error: "assistant disabled" });
+    return json(cors, 403, { ok: false, error: "assistant disabled" });
   }
 
-  // 3. Rate limit por IP (in-memory, best-effort por instância).
-  // Na Vercel, x-real-ip é o IP real do cliente; o PRIMEIRO valor de
-  // x-forwarded-for é spoofável (o cliente pode mandar o próprio header).
-  const ip =
-    request.headers.get("x-real-ip")?.trim() ||
-    request.headers.get("x-forwarded-for")?.split(",").pop()?.trim() ||
-    "unknown";
+  // 3. Rate limit compartilhado por IP.
+  const ip = getRequestClientIp(request);
   const ipHash = hashIp(ip);
   const userAgent = (request.headers.get("user-agent") || "").slice(0, 250);
-  if (!checkIpRateLimit(ipHash)) {
-    return json(request, 429, { ok: false, reply: BUSY_REPLY });
+  if (!(await checkIpRateLimit(ipHash))) {
+    return json(cors, 429, { ok: false, reply: BUSY_REPLY });
   }
 
   // 4. Mensagem válida?
   const message = validateUserMessage(body.message);
   if (!message) {
-    return json(request, 400, { ok: false, error: "invalid message" });
+    return json(cors, 400, { ok: false, error: "invalid message" });
   }
 
   // Modo global (Chat Commerce v2): só vale se o workspace habilitou. Nesse
@@ -130,7 +143,7 @@ export async function POST(request: NextRequest) {
   const capSurface: "pdp" | "global" = wantsGlobal ? "global" : "pdp";
   const dailyCount = await getDailyMessageCount(workspaceId, capSurface);
   if (dailyCount >= settings.dailyMessageCap) {
-    return json(request, 429, { ok: false, reply: BUSY_REPLY });
+    return json(cors, 429, { ok: false, reply: BUSY_REPLY });
   }
 
   // 6. Sessão: carrega existente ou cria (criação exige produto liberado)
@@ -158,7 +171,7 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (!conv) {
-      return json(request, 404, { ok: false, error: "session not found" });
+      return json(cors, 404, { ok: false, error: "session not found" });
     }
     conversationId = conv.id as string;
     activeSessionKey = conv.session_key as string;
@@ -186,7 +199,7 @@ export async function POST(request: NextRequest) {
     // toda); fora dele, mantém o gate estrito do widget v1.
     if (!surface || surface === "pdp") {
       if (!isProductAllowed(settings, productId)) {
-        return json(request, 403, { ok: false, error: "assistant not available here" });
+        return json(cors, 403, { ok: false, error: "assistant not available here" });
       }
     }
     activeSessionKey = randomBytes(24).toString("base64url");
@@ -207,7 +220,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (createError || !created) {
-      return json(request, 500, { ok: false, reply: BUSY_REPLY });
+      return json(cors, 500, { ok: false, reply: BUSY_REPLY });
     }
     conversationId = created.id as string;
     isNewSession = true;
@@ -227,7 +240,7 @@ export async function POST(request: NextRequest) {
 
   // 7. Teto por sessão
   if (messageCount >= settings.maxMessagesPerSession) {
-    return json(request, 429, {
+    return json(cors, 429, {
       ok: false,
       session_id: activeSessionKey,
       reply: SESSION_LIMIT_REPLY,
@@ -265,7 +278,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error("[assistant] turn failed:", err instanceof Error ? err.message : err);
-    return json(request, 500, {
+    return json(cors, 500, {
       ok: false,
       session_id: activeSessionKey,
       reply: "Tive um problema técnico agora. Tenta de novo em instantes.",
@@ -318,7 +331,7 @@ export async function POST(request: NextRequest) {
     .select("id, role");
   if (messageInsertError) {
     console.error("[assistant] transcript insert failed:", messageInsertError.message);
-    return json(request, 500, {
+    return json(cors, 500, {
       ok: false,
       session_id: activeSessionKey,
       reply: "Tive um problema técnico agora. Tenta de novo em instantes.",
@@ -403,7 +416,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  return json(request, 200, {
+  return json(cors, 200, {
     ok: true,
     session_id: activeSessionKey,
     reply: result.reply,

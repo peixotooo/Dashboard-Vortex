@@ -1,10 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { isIP } from "node:net";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { encrypt, decrypt } from "@/lib/encryption";
 import { getAdAccounts, runWithToken } from "@/lib/meta-api";
 import { testVndaConnection } from "@/lib/vnda-api";
 import { generateWebhookToken } from "@/lib/vnda-webhook";
+import {
+  assertTrustedMutationOrigin,
+  AuthError,
+  handleAuthError,
+} from "@/lib/api-auth";
+import {
+  consumeSecurityRateLimit,
+  getRequestClientIp,
+} from "@/lib/security/rate-limit";
+import { readLimitedJson } from "@/lib/security/webhook-request";
 import {
   addDomainToVercel,
   verifyDomainOnVercel,
@@ -12,6 +23,7 @@ import {
   getDomainConfig,
   isValidDomain,
 } from "@/lib/vercel-domains";
+import { getDashboardOrigin } from "@/lib/security/dashboard-origin";
 
 function getSupabase(request: NextRequest) {
   return createServerClient(
@@ -45,6 +57,53 @@ async function getWorkspaceRole(
 
 function isAdminRole(role: string | null): boolean {
   return role === "owner" || role === "admin";
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_BODY_BYTES = 256 * 1024;
+const ASSIGNABLE_ROLES = new Set(["member", "admin"]);
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function normalizeEmail(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const email = value.trim().toLowerCase();
+  return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    ? email
+    : null;
+}
+
+function normalizeVndaStoreHost(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 255) return null;
+  try {
+    const raw = value.trim().toLowerCase();
+    const parsed = new URL(
+      raw.includes("://") ? raw : `https://${raw}`
+    );
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.port ||
+      (parsed.pathname !== "/" && parsed.pathname !== "") ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      return null;
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    return isIP(hostname) === 0 && isValidDomain(hostname) ? hostname : null;
+  } catch {
+    return null;
+  }
 }
 
 const ADMIN_ACTIONS = new Set([
@@ -111,16 +170,6 @@ export async function GET(request: NextRequest) {
       .limit(1)
       .single();
 
-    // Auto-generate webhook token if connection exists but token is missing
-    if (vndaConnection && !vndaConnection.webhook_token) {
-      const newToken = generateWebhookToken();
-      await supabase
-        .from("vnda_connections")
-        .update({ webhook_token: newToken })
-        .eq("id", vndaConnection.id);
-      vndaConnection.webhook_token = newToken;
-    }
-
     // O webhook_token é um segredo que autentica webhooks de pedido/cashback.
     // Só owner/admin podem vê-lo — membro comum recebe a conexão sem o token.
     if (vndaConnection && !isAdminRole(role)) {
@@ -142,14 +191,17 @@ export async function GET(request: NextRequest) {
       customDomain: wsData?.custom_domain || null,
     });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[workspaces]", message);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
 // POST — manage workspace members, connections, accounts
 export async function POST(request: NextRequest) {
   try {
+    assertTrustedMutationOrigin(request);
     const supabase = getSupabase(request);
     const { data: { user } } = await supabase.auth.getUser();
 
@@ -157,25 +209,81 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
-    const body = await request.json();
+    const parsed = await readLimitedJson(request, MAX_BODY_BYTES);
+    if (!parsed.ok) {
+      return NextResponse.json(
+        { error: parsed.error },
+        { status: parsed.status }
+      );
+    }
+    if (!parsed.value || typeof parsed.value !== "object" || Array.isArray(parsed.value)) {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+    const body = parsed.value as Record<string, unknown>;
     const { action, workspace_id, ...args } = body;
 
-    if (!workspace_id) {
+    if (typeof workspace_id !== "string" || !UUID_RE.test(workspace_id)) {
       return NextResponse.json({ error: "workspace_id required" }, { status: 400 });
+    }
+    if (typeof action !== "string" || action.length > 80) {
+      return NextResponse.json({ error: "Invalid action" }, { status: 400 });
     }
 
     const role = await getWorkspaceRole(workspace_id, user.id);
     if (!role) {
       return NextResponse.json({ error: "Not a workspace member" }, { status: 403 });
     }
+    const admin = createAdminClient();
 
     if (ADMIN_ACTIONS.has(action) && !isAdminRole(role)) {
       return NextResponse.json({ error: "Admin role required" }, { status: 403 });
     }
 
+    const actionRateLimit = await consumeSecurityRateLimit({
+      scope: "workspaces:actions",
+      key: `${workspace_id}:${user.id}:${getRequestClientIp(request)}`,
+      limit: 120,
+    });
+    if (!actionRateLimit.allowed) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+    }
+
     switch (action) {
       case "invite_member": {
-        const { email, role = "member", features = null } = args;
+        const email = normalizeEmail(args.email);
+        const inviteRole =
+          typeof args.role === "string" ? args.role : "member";
+        const features = Array.isArray(args.features)
+          ? args.features
+              .filter(
+                (feature): feature is string =>
+                  typeof feature === "string" &&
+                  /^[a-z0-9._-]{1,100}$/i.test(feature)
+              )
+              .slice(0, 100)
+          : null;
+        if (!email) {
+          return NextResponse.json({ error: "Email inválido" }, { status: 400 });
+        }
+        if (!ASSIGNABLE_ROLES.has(inviteRole)) {
+          return NextResponse.json({ error: "Perfil inválido" }, { status: 400 });
+        }
+        if (inviteRole === "admin" && role !== "owner") {
+          return NextResponse.json(
+            { error: "Apenas o proprietário pode convidar administradores" },
+            { status: 403 }
+          );
+        }
+
+        const inviteRateLimit = await consumeSecurityRateLimit({
+          scope: "workspaces:invite-member",
+          key: `${workspace_id}:${user.id}`,
+          limit: 20,
+          windowSeconds: 3600,
+        });
+        if (!inviteRateLimit.allowed) {
+          return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+        }
 
         // Check if already a member
         const { data: existingProfile } = await supabase
@@ -220,10 +328,10 @@ export async function POST(request: NextRequest) {
         const inviteData: Record<string, unknown> = {
           workspace_id,
           email,
-          role,
+          role: inviteRole,
           invited_by: user.id,
         };
-        if (role === "member" && features) {
+        if (inviteRole === "member" && features) {
           inviteData.features = features;
         }
 
@@ -238,26 +346,33 @@ export async function POST(request: NextRequest) {
         // Send email via Resend
         const { Resend } = await import("resend");
         const resend = new Resend(process.env.RESEND_API_KEY);
-        const inviteUrl = `${request.nextUrl.origin}/invite?token=${invitation.token}`;
+        const inviteUrl = `${getDashboardOrigin(request.nextUrl.origin)}/invite?token=${encodeURIComponent(
+          invitation.token
+        )}`;
 
         const { data: ws } = await supabase
           .from("workspaces")
           .select("name")
           .eq("id", workspace_id)
           .single();
+        const workspaceName = String(ws?.name || "Dashboard Vortex")
+          .replace(/[\r\n]+/g, " ")
+          .slice(0, 120);
+        const workspaceNameHtml = escapeHtml(workspaceName);
+        const inviteUrlHtml = escapeHtml(inviteUrl);
 
         await resend.emails.send({
           from: `Vortex <${process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev"}>`,
           to: email,
-          subject: `Convite para ${ws?.name || "Dashboard Vortex"}`,
+          subject: `Convite para ${workspaceName}`,
           html: `
             <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
               <h2 style="color: #111;">Voce foi convidado!</h2>
               <p style="color: #555; line-height: 1.6;">
                 Voce recebeu um convite para participar do workspace
-                <strong>${ws?.name || "Dashboard Vortex"}</strong>.
+                <strong>${workspaceNameHtml}</strong>.
               </p>
-              <a href="${inviteUrl}"
+              <a href="${inviteUrlHtml}"
                  style="display: inline-block; background: #111; color: #fff; padding: 12px 24px;
                         border-radius: 8px; text-decoration: none; margin: 16px 0;">
                 Aceitar convite
@@ -274,6 +389,9 @@ export async function POST(request: NextRequest) {
 
       case "cancel_invite": {
         const { invitation_id } = args;
+        if (typeof invitation_id !== "string" || !UUID_RE.test(invitation_id)) {
+          return NextResponse.json({ error: "Convite invalido" }, { status: 400 });
+        }
         const { error } = await supabase
           .from("workspace_invitations")
           .delete()
@@ -286,6 +404,9 @@ export async function POST(request: NextRequest) {
 
       case "resend_invite": {
         const { invitation_id } = args;
+        if (typeof invitation_id !== "string" || !UUID_RE.test(invitation_id)) {
+          return NextResponse.json({ error: "Convite invalido" }, { status: 400 });
+        }
 
         const { data: inv } = await supabase
           .from("workspace_invitations")
@@ -307,26 +428,33 @@ export async function POST(request: NextRequest) {
 
         const { Resend } = await import("resend");
         const resend = new Resend(process.env.RESEND_API_KEY);
-        const inviteUrl = `${request.nextUrl.origin}/invite?token=${inv.token}`;
+        const inviteUrl = `${getDashboardOrigin(request.nextUrl.origin)}/invite?token=${encodeURIComponent(
+          inv.token
+        )}`;
 
         const { data: ws } = await supabase
           .from("workspaces")
           .select("name")
           .eq("id", workspace_id)
           .single();
+        const workspaceName = String(ws?.name || "Dashboard Vortex")
+          .replace(/[\r\n]+/g, " ")
+          .slice(0, 120);
+        const workspaceNameHtml = escapeHtml(workspaceName);
+        const inviteUrlHtml = escapeHtml(inviteUrl);
 
         await resend.emails.send({
           from: `Vortex <${process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev"}>`,
           to: inv.email,
-          subject: `Convite para ${ws?.name || "Dashboard Vortex"}`,
+          subject: `Convite para ${workspaceName}`,
           html: `
             <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
               <h2 style="color: #111;">Voce foi convidado!</h2>
               <p style="color: #555; line-height: 1.6;">
                 Voce recebeu um convite para participar do workspace
-                <strong>${ws?.name || "Dashboard Vortex"}</strong>.
+                <strong>${workspaceNameHtml}</strong>.
               </p>
-              <a href="${inviteUrl}"
+              <a href="${inviteUrlHtml}"
                  style="display: inline-block; background: #111; color: #fff; padding: 12px 24px;
                         border-radius: 8px; text-decoration: none; margin: 16px 0;">
                 Aceitar convite
@@ -342,36 +470,103 @@ export async function POST(request: NextRequest) {
       }
 
       case "remove_member": {
-        const { user_id } = args;
-        const { error } = await supabase
+        const userId = typeof args.user_id === "string" ? args.user_id : "";
+        if (!UUID_RE.test(userId)) {
+          return NextResponse.json({ error: "Membro inválido" }, { status: 400 });
+        }
+        const { data: targetMember } = await supabase
+          .from("workspace_members")
+          .select("role")
+          .eq("workspace_id", workspace_id)
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (!targetMember) {
+          return NextResponse.json({ error: "Membro não encontrado" }, { status: 404 });
+        }
+        if (targetMember.role === "owner") {
+          return NextResponse.json(
+            { error: "O proprietário do workspace não pode ser removido" },
+            { status: 403 }
+          );
+        }
+        if (role === "admin" && targetMember.role === "admin") {
+          return NextResponse.json(
+            { error: "Apenas o proprietário pode remover administradores" },
+            { status: 403 }
+          );
+        }
+
+        const { error } = await admin
           .from("workspace_members")
           .delete()
           .eq("workspace_id", workspace_id)
-          .eq("user_id", user_id);
+          .eq("user_id", userId);
 
         if (error) throw error;
         return NextResponse.json({ success: true });
       }
 
       case "update_role": {
-        const { user_id, role } = args;
-        const { error } = await supabase
+        const userId = typeof args.user_id === "string" ? args.user_id : "";
+        const newRole = typeof args.role === "string" ? args.role : "";
+        if (!UUID_RE.test(userId) || !ASSIGNABLE_ROLES.has(newRole)) {
+          return NextResponse.json({ error: "Membro ou perfil inválido" }, { status: 400 });
+        }
+        const { data: targetMember } = await supabase
           .from("workspace_members")
-          .update({ role })
+          .select("role")
           .eq("workspace_id", workspace_id)
-          .eq("user_id", user_id);
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (!targetMember) {
+          return NextResponse.json({ error: "Membro não encontrado" }, { status: 404 });
+        }
+        if (targetMember.role === "owner") {
+          return NextResponse.json(
+            { error: "O perfil do proprietário não pode ser alterado" },
+            { status: 403 }
+          );
+        }
+        if (
+          role !== "owner" &&
+          (targetMember.role === "admin" || newRole === "admin")
+        ) {
+          return NextResponse.json(
+            { error: "Apenas o proprietário pode promover ou rebaixar administradores" },
+            { status: 403 }
+          );
+        }
+
+        const { error } = await admin
+          .from("workspace_members")
+          .update({ role: newRole })
+          .eq("workspace_id", workspace_id)
+          .eq("user_id", userId);
 
         if (error) throw error;
         return NextResponse.json({ success: true });
       }
 
       case "update_workspace": {
-        const { name, slug } = args;
+        const name =
+          typeof args.name === "string" ? args.name.trim().slice(0, 120) : "";
+        const slug =
+          typeof args.slug === "string"
+            ? args.slug.trim().toLowerCase()
+            : "";
         const updates: Record<string, string> = {};
         if (name) updates.name = name;
-        if (slug) updates.slug = slug;
+        if (slug) {
+          if (!/^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(slug)) {
+            return NextResponse.json({ error: "Slug inválido" }, { status: 400 });
+          }
+          updates.slug = slug;
+        }
+        if (Object.keys(updates).length === 0) {
+          return NextResponse.json({ error: "Nenhuma alteração válida" }, { status: 400 });
+        }
 
-        const { error } = await supabase
+        const { error } = await admin
           .from("workspaces")
           .update(updates)
           .eq("id", workspace_id);
@@ -392,7 +587,23 @@ export async function POST(request: NextRequest) {
         // Multi-connection: with connection_id -> rotate that connection's token;
         // without -> ADD a new connection (a workspace can hold several, e.g.
         // tokens from different Meta apps/Businesses).
-        const { access_token, app_id, label, connection_id } = args;
+        const access_token =
+          typeof args.access_token === "string" &&
+          args.access_token.length >= 20 &&
+          args.access_token.length <= 8192
+            ? args.access_token
+            : null;
+        const app_id =
+          typeof args.app_id === "string" ? args.app_id.slice(0, 120) : null;
+        const label =
+          typeof args.label === "string" ? args.label.trim().slice(0, 120) : null;
+        const connection_id =
+          typeof args.connection_id === "string" && UUID_RE.test(args.connection_id)
+            ? args.connection_id
+            : null;
+        if (!access_token) {
+          return NextResponse.json({ error: "Token Meta inválido" }, { status: 400 });
+        }
         const encryptedToken = encrypt(access_token);
 
         if (connection_id) {
@@ -555,7 +766,23 @@ export async function POST(request: NextRequest) {
       }
 
       case "save_vnda_connection": {
-        const { api_token, store_host, store_name } = args;
+        const api_token =
+          typeof args.api_token === "string" &&
+          args.api_token.length >= 16 &&
+          args.api_token.length <= 8192
+            ? args.api_token
+            : null;
+        const store_host = normalizeVndaStoreHost(args.store_host);
+        const store_name =
+          typeof args.store_name === "string"
+            ? args.store_name.trim().slice(0, 120)
+            : null;
+        if (!api_token || !store_host) {
+          return NextResponse.json(
+            { error: "Token ou domínio VNDA inválido" },
+            { status: 400 }
+          );
+        }
         const encryptedToken = encrypt(api_token);
 
         // Upsert connection
@@ -597,7 +824,19 @@ export async function POST(request: NextRequest) {
       }
 
       case "test_vnda_connection": {
-        const { api_token, store_host } = args;
+        const api_token =
+          typeof args.api_token === "string" &&
+          args.api_token.length >= 16 &&
+          args.api_token.length <= 8192
+            ? args.api_token
+            : null;
+        const store_host = normalizeVndaStoreHost(args.store_host);
+        if (!api_token || !store_host) {
+          return NextResponse.json(
+            { error: "Token ou domínio VNDA inválido" },
+            { status: 400 }
+          );
+        }
         const result = await testVndaConnection({ apiToken: api_token, storeHost: store_host });
         return NextResponse.json(result);
       }
@@ -624,7 +863,10 @@ export async function POST(request: NextRequest) {
       // --- Custom Domain ---
 
       case "set_custom_domain": {
-        const { domain } = args;
+        const domain =
+          typeof args.domain === "string"
+            ? args.domain.trim().toLowerCase()
+            : "";
 
         if (!domain || !isValidDomain(domain)) {
           return NextResponse.json(
@@ -653,7 +895,7 @@ export async function POST(request: NextRequest) {
         const vercelResult = await addDomainToVercel(domain);
 
         // Save to database
-        const { error: updateError } = await supabase
+        const { error: updateError } = await admin
           .from("workspaces")
           .update({ custom_domain: domain })
           .eq("id", workspace_id);
@@ -710,7 +952,7 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        const { error: updateError } = await supabase
+        const { error: updateError } = await admin
           .from("workspaces")
           .update({ custom_domain: null })
           .eq("id", workspace_id);
@@ -721,7 +963,26 @@ export async function POST(request: NextRequest) {
       }
 
       case "update_member_features": {
-        const { user_id: targetUserId, features } = args;
+        const targetUserId =
+          typeof args.user_id === "string" ? args.user_id : "";
+        const features =
+          args.features === null
+            ? null
+            : Array.isArray(args.features)
+            ? args.features
+                .filter(
+                  (feature): feature is string =>
+                    typeof feature === "string" &&
+                    /^[a-z0-9._-]{1,100}$/i.test(feature)
+                )
+                .slice(0, 100)
+            : undefined;
+        if (!UUID_RE.test(targetUserId) || features === undefined) {
+          return NextResponse.json(
+            { error: "Membro ou permissoes invalidas" },
+            { status: 400 }
+          );
+        }
 
         // Verify caller is admin/owner
         const { data: callerMember } = await supabase
@@ -760,9 +1021,9 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        const { error: updateFeaturesError } = await supabase
+        const { error: updateFeaturesError } = await admin
           .from("workspace_members")
-          .update({ features: features ?? null })
+          .update({ features })
           .eq("workspace_id", workspace_id)
           .eq("user_id", targetUserId);
 
@@ -774,7 +1035,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Unknown action" }, { status: 400 });
     }
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[workspaces]", message);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

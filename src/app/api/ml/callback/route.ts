@@ -1,23 +1,50 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getWorkspaceAdminContext } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { encrypt } from "@/lib/encryption";
+import {
+  oauthNonceMatches,
+  parseOAuthState,
+} from "@/lib/security/oauth-state";
+
+function redirect(req: NextRequest, path: string): NextResponse {
+  const response = NextResponse.redirect(new URL(path, req.url));
+  response.cookies.delete("ml_oauth_state");
+  return response;
+}
+
+async function requireCurrentWorkspaceAdmin(
+  req: NextRequest,
+  workspaceId: string
+): Promise<void> {
+  const authUrl = req.nextUrl.clone();
+  authUrl.searchParams.set("workspace_id", workspaceId);
+  const authRequest = new NextRequest(authUrl, { headers: req.headers });
+  await getWorkspaceAdminContext(authRequest);
+}
 
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code");
   const state = req.nextUrl.searchParams.get("state") || "";
 
   if (!code) {
-    return NextResponse.json({ error: "No code received" }, { status: 400 });
+    return redirect(req, "/hub?error=missing_code");
   }
 
-  // Extract workspace_id from state param (state:workspaceId)
-  const parts = state.split(":");
-  const workspaceId = parts.length > 1 ? parts.slice(1).join(":") : "";
+  const parsedState = parseOAuthState(state);
+  const cookieNonce = req.cookies.get("ml_oauth_state")?.value;
+  if (
+    !parsedState ||
+    !oauthNonceMatches(cookieNonce, parsedState.nonce)
+  ) {
+    return redirect(req, "/hub?error=state_mismatch");
+  }
 
-  if (!workspaceId) {
-    return NextResponse.redirect(
-      new URL("/hub?error=missing_workspace", req.url)
-    );
+  const { workspaceId } = parsedState;
+  try {
+    await requireCurrentWorkspaceAdmin(req, workspaceId);
+  } catch {
+    return redirect(req, "/hub?error=oauth_unauthorized");
   }
 
   // Exchange code for token
@@ -36,9 +63,7 @@ export async function GET(req: NextRequest) {
   if (!tokenRes.ok) {
     const err = await tokenRes.text().catch(() => "Unknown error");
     console.error("[ML Callback] Token exchange failed:", err);
-    return NextResponse.redirect(
-      new URL("/hub?error=token_exchange_failed", req.url)
-    );
+    return redirect(req, "/hub?error=token_exchange_failed");
   }
 
   const tokenData = await tokenRes.json();
@@ -68,9 +93,7 @@ export async function GET(req: NextRequest) {
 
   if (error) {
     console.error("[ML Callback] DB upsert failed:", error.message);
-    return NextResponse.redirect(
-      new URL("/hub?error=db_save_failed", req.url)
-    );
+    return redirect(req, "/hub?error=db_save_failed");
   }
 
   // Log the connection
@@ -84,5 +107,5 @@ export async function GET(req: NextRequest) {
     details: { nickname: userData.nickname },
   });
 
-  return NextResponse.redirect(new URL("/hub", req.url));
+  return redirect(req, "/hub");
 }

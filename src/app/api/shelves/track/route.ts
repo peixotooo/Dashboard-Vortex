@@ -1,17 +1,68 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateApiKey } from "@/lib/shelves/api-key";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { buildCorsHeaders } from "@/lib/cors";
+import { getStorefrontCors } from "@/lib/cors";
 import { shelfSourceColumnsAvailable } from "@/lib/shelves/source";
+import {
+  consumeSecurityRateLimit,
+  getRequestClientIp,
+} from "@/lib/security/rate-limit";
+import { readLimitedJson } from "@/lib/security/webhook-request";
+
+const MAX_BODY_BYTES = 8 * 1024;
+const VALID_EVENT_TYPES = new Set([
+  "pageview",
+  "click",
+  "add_to_cart",
+  "purchase",
+  "impression",
+]);
+
+function safeIdentifier(value: unknown, max = 128): string | null {
+  if (typeof value !== "string") return null;
+  const clean = value.trim();
+  return clean.length > 0 &&
+    clean.length <= max &&
+    /^[a-zA-Z0-9_.:-]+$/.test(clean)
+    ? clean
+    : null;
+}
 
 export async function POST(request: NextRequest) {
-  const CORS_HEADERS = buildCorsHeaders(request);
-  let body: Record<string, unknown>;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400, headers: CORS_HEADERS });
+  let corsResult = await getStorefrontCors(request);
+  let cors = corsResult.headers;
+  if (!corsResult.allowed) {
+    return NextResponse.json(
+      { error: "Origin not allowed" },
+      { status: 403, headers: cors }
+    );
   }
+
+  const clientIp = getRequestClientIp(request);
+  const ingressLimit = await consumeSecurityRateLimit({
+    scope: "shelves:track:ingress",
+    key: clientIp,
+    limit: 300,
+    windowSeconds: 60,
+  });
+  if (!ingressLimit.allowed) {
+    return NextResponse.json(
+      { error: "Rate limit exceeded" },
+      { status: 429, headers: cors }
+    );
+  }
+
+  const parsed = await readLimitedJson(request, MAX_BODY_BYTES);
+  if (!parsed.ok) {
+    return NextResponse.json(
+      { error: parsed.error },
+      { status: parsed.status, headers: cors }
+    );
+  }
+  const body =
+    parsed.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+      ? (parsed.value as Record<string, unknown>)
+      : {};
 
   const {
     key,
@@ -22,39 +73,66 @@ export async function POST(request: NextRequest) {
     page_type,
     shelf_config_id,
     revenue,
-  } = body as Record<string, string | number | undefined>;
-
-  const VALID_EVENT_TYPES = new Set(["pageview", "click", "add_to_cart", "purchase", "impression"]);
+  } = body;
 
   if (!session_id || !event_type) {
     return NextResponse.json(
       { error: "Missing session_id or event_type" },
-      { status: 400, headers: CORS_HEADERS }
+      { status: 400, headers: cors }
     );
   }
 
-  if (!VALID_EVENT_TYPES.has(event_type as string)) {
+  if (typeof event_type !== "string" || !VALID_EVENT_TYPES.has(event_type)) {
     return NextResponse.json(
       { error: `Invalid event_type. Valid: ${[...VALID_EVENT_TYPES].join(", ")}` },
-      { status: 400, headers: CORS_HEADERS }
+      { status: 400, headers: cors }
     );
   }
 
-  // Validate session_id format (alphanumeric + hyphens/underscores, max 128 chars)
-  const sid = String(session_id);
-  if (sid.length > 128 || !/^[a-zA-Z0-9_-]+$/.test(sid)) {
+  const sid = safeIdentifier(session_id);
+  if (!sid) {
     return NextResponse.json(
       { error: "Invalid session_id format" },
-      { status: 400, headers: CORS_HEADERS }
+      { status: 400, headers: cors }
     );
   }
 
-  const auth = await validateApiKey(key as string);
+  const auth = await validateApiKey(typeof key === "string" ? key : null);
   if (!auth) {
-    return NextResponse.json({ error: "Invalid API key" }, { status: 401, headers: CORS_HEADERS });
+    return NextResponse.json(
+      { error: "Invalid API key" },
+      { status: 401, headers: cors }
+    );
+  }
+
+  corsResult = await getStorefrontCors(request, auth.workspaceId);
+  cors = corsResult.headers;
+  if (!corsResult.allowed) {
+    return NextResponse.json(
+      { error: "Origin not allowed" },
+      { status: 403, headers: cors }
+    );
+  }
+
+  const workspaceLimit = await consumeSecurityRateLimit({
+    scope: "shelves:track:workspace",
+    key: `${auth.workspaceId}:${clientIp}`,
+    limit: 240,
+    windowSeconds: 60,
+  });
+  if (!workspaceLimit.allowed) {
+    return NextResponse.json(
+      { error: "Rate limit exceeded" },
+      { status: 429, headers: cors }
+    );
   }
 
   const admin = createAdminClient();
+  const consumerId = safeIdentifier(consumer_id);
+  const productId = safeIdentifier(product_id);
+  const pageType = safeIdentifier(page_type, 40);
+  const shelfConfigId = safeIdentifier(shelf_config_id, 80);
+  const numericRevenue = Number(revenue);
 
   // Carimba a loja dona do evento (source da key). Tolerante à migration-143:
   // sem as colunas no banco, grava exatamente como antes (tudo é vnda).
@@ -64,27 +142,32 @@ export async function POST(request: NextRequest) {
     // Insert event
     await admin.from("shelf_events").insert({
       workspace_id: auth.workspaceId,
-      session_id,
-      consumer_id: consumer_id || null,
+      session_id: sid,
+      consumer_id: consumerId,
       event_type,
-      product_id: product_id || null,
-      page_type: page_type || null,
-      shelf_config_id: shelf_config_id || null,
-      revenue: revenue || null,
+      product_id: productId,
+      page_type: pageType,
+      shelf_config_id: shelfConfigId,
+      revenue:
+        Number.isFinite(numericRevenue) &&
+        numericRevenue >= 0 &&
+        numericRevenue <= 10_000_000
+           ? numericRevenue
+           : null,
       ...(hasSource ? { source: auth.source } : {}),
     });
 
     // Update consumer history on pageview
     if (
       event_type === "pageview" &&
-      product_id &&
-      consumer_id
+      productId &&
+      consumerId
     ) {
       await admin.from("shelf_consumer_history").upsert(
         {
           workspace_id: auth.workspaceId,
-          consumer_id: consumer_id as string,
-          product_id: product_id as string,
+          consumer_id: consumerId,
+          product_id: productId,
           views: 1,
           last_seen: new Date().toISOString(),
           ...(hasSource ? { source: auth.source } : {}),
@@ -100,8 +183,8 @@ export async function POST(request: NextRequest) {
       try {
         await admin.rpc("increment_shelf_views", {
           p_workspace_id: auth.workspaceId,
-          p_consumer_id: consumer_id,
-          p_product_id: product_id,
+          p_consumer_id: consumerId,
+          p_product_id: productId,
         });
       } catch {
         // RPC may not exist yet, upsert above handles the insert case
@@ -110,19 +193,23 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       { ok: true },
-      { headers: CORS_HEADERS }
+      { headers: cors }
     );
   } catch (error) {
-    console.error("[Shelves Track]", error);
-    return NextResponse.json({ ok: false }, { status: 500, headers: CORS_HEADERS });
+    console.error(
+      "[Shelves Track]",
+      error instanceof Error ? error.message : "insert_failed"
+    );
+    return NextResponse.json({ ok: false }, { status: 500, headers: cors });
   }
 }
 
 export async function OPTIONS(request: NextRequest) {
+  const corsResult = await getStorefrontCors(request);
   return new NextResponse(null, {
-    status: 204,
+    status: corsResult.allowed ? 204 : 403,
     headers: {
-      ...buildCorsHeaders(request),
+      ...corsResult.headers,
       "Access-Control-Max-Age": "86400",
     },
   });

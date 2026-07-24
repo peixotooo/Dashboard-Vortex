@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  getWorkspaceContext,
+  handleAuthError,
+} from "@/lib/api-auth";
 
 export interface RouteAuth {
   userId: string;
@@ -14,37 +17,19 @@ export async function authRoute(
   request: NextRequest,
   opts?: { requireAdmin?: boolean }
 ): Promise<{ auth?: RouteAuth; error?: NextResponse }> {
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return { error: NextResponse.json({ error: "Not authenticated" }, { status: 401 }) };
-  }
-
-  const workspaceId = request.headers.get("x-workspace-id") || "";
-  if (!workspaceId) {
-    return { error: NextResponse.json({ error: "Missing x-workspace-id" }, { status: 400 }) };
+  let context: { userId: string; workspaceId: string };
+  try {
+    context = await getWorkspaceContext(request);
+  } catch (error) {
+    return { error: handleAuthError(error) };
   }
 
   const admin = createAdminClient();
   const { data: membership } = await admin
     .from("workspace_members")
     .select("role")
-    .eq("workspace_id", workspaceId)
-    .eq("user_id", user.id)
+    .eq("workspace_id", context.workspaceId)
+    .eq("user_id", context.userId)
     .maybeSingle();
 
   if (!membership) {
@@ -58,8 +43,8 @@ export async function authRoute(
 
   return {
     auth: {
-      userId: user.id,
-      workspaceId,
+      userId: context.userId,
+      workspaceId: context.workspaceId,
       role,
       admin,
     },

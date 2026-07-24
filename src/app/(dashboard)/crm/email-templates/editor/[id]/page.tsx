@@ -203,8 +203,11 @@ export default function EmailEditorPage({ params }: PageProps) {
   // Listen for clicks inside the iframe.
   useEffect(() => {
     function onMsg(e: MessageEvent) {
+      if (e.source !== iframeRef.current?.contentWindow) return;
       if (!e.data || e.data.type !== "block:select") return;
-      setSelectedId(e.data.id ?? null);
+      const id = typeof e.data.id === "string" ? e.data.id : "";
+      if (!/^[\w.-]{1,128}$/.test(id)) return;
+      setSelectedId(id);
     }
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);

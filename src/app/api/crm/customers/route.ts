@@ -178,8 +178,16 @@ export async function GET(request: NextRequest) {
       const totalSpentMax = sp.get("total_spent_max");
 
       if (search) {
-        const escaped = search.replace(/[%_,]/g, "");
-        query = query.or(`nome.ilike.%${escaped}%,email.ilike.%${escaped}%,telefone.ilike.%${escaped}%`);
+        const escaped = search
+          .replace(/[%_,().*"'\\]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 120);
+        if (escaped) {
+          query = query.or(
+            `nome.ilike.%${escaped}%,email.ilike.%${escaped}%,telefone.ilike.%${escaped}%`
+          );
+        }
       }
       if (segment !== "all") query = query.eq("segmento_rfm", segment);
       if (dayRange !== "all") query = query.eq("faixa_dia_mes", dayRange);

@@ -1,9 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getWorkspaceAdminContext } from "@/lib/api-auth";
 import { upsertTikTokCredentials } from "@/lib/tiktok-credentials";
 import { createAdminClient } from "@/lib/supabase-admin";
+import {
+  oauthNonceMatches,
+  parseOAuthState,
+} from "@/lib/security/oauth-state";
 
 const API_VERSION = process.env.TIKTOK_API_VERSION?.trim() || "v1.3";
 const TOKEN_URL = `https://business-api.tiktok.com/open_api/${API_VERSION}/oauth2/access_token/`;
+
+function redirect(req: NextRequest, path: string): NextResponse {
+  const response = NextResponse.redirect(new URL(path, req.url));
+  response.cookies.delete("tiktok_oauth_state");
+  return response;
+}
+
+async function requireCurrentWorkspaceAdmin(
+  req: NextRequest,
+  workspaceId: string
+): Promise<void> {
+  const authUrl = req.nextUrl.clone();
+  authUrl.searchParams.set("workspace_id", workspaceId);
+  const authRequest = new NextRequest(authUrl, { headers: req.headers });
+  await getWorkspaceAdminContext(authRequest);
+}
 
 /**
  * TikTok Marketing API OAuth callback. Mirrors src/app/api/ml/callback/route.ts but:
@@ -19,26 +40,30 @@ export async function GET(req: NextRequest) {
   const state = req.nextUrl.searchParams.get("state") || "";
 
   if (!authCode) {
-    return NextResponse.redirect(new URL("/tiktok-ads?error=tiktok_no_code", req.url));
+    return redirect(req, "/tiktok-ads?error=tiktok_no_code");
   }
 
-  // Recover workspace_id and verify CSRF nonce against the cookie.
-  const parts = state.split(":");
-  const csrf = parts[0] || "";
-  const workspaceId = parts.length > 1 ? parts.slice(1).join(":") : "";
+  const parsedState = parseOAuthState(state);
   const cookieCsrf = req.cookies.get("tiktok_oauth_state")?.value || "";
 
-  if (!workspaceId) {
-    return NextResponse.redirect(new URL("/tiktok-ads?error=tiktok_missing_workspace", req.url));
+  if (
+    !parsedState ||
+    !oauthNonceMatches(cookieCsrf, parsedState.nonce)
+  ) {
+    return redirect(req, "/tiktok-ads?error=tiktok_state_mismatch");
   }
-  if (!csrf || csrf !== cookieCsrf) {
-    return NextResponse.redirect(new URL("/tiktok-ads?error=tiktok_state_mismatch", req.url));
+
+  const { workspaceId } = parsedState;
+  try {
+    await requireCurrentWorkspaceAdmin(req, workspaceId);
+  } catch {
+    return redirect(req, "/tiktok-ads?error=tiktok_oauth_unauthorized");
   }
 
   const appId = process.env.TIKTOK_APP_ID;
   const secret = process.env.TIKTOK_APP_SECRET;
   if (!appId || !secret) {
-    return NextResponse.redirect(new URL("/tiktok-ads?error=tiktok_not_configured", req.url));
+    return redirect(req, "/tiktok-ads?error=tiktok_not_configured");
   }
 
   // Exchange auth_code -> durable access token.
@@ -71,9 +96,7 @@ export async function GET(req: NextRequest) {
       tokenJson?.code,
       tokenJson?.message
     );
-    return NextResponse.redirect(
-      new URL("/tiktok-ads?error=tiktok_token_exchange_failed", req.url)
-    );
+    return redirect(req, "/tiktok-ads?error=tiktok_token_exchange_failed");
   }
 
   const accessToken = tokenJson.data.access_token;
@@ -94,7 +117,7 @@ export async function GET(req: NextRequest) {
       "[TikTok Callback] DB upsert failed:",
       err instanceof Error ? err.message : err
     );
-    return NextResponse.redirect(new URL("/tiktok-ads?error=tiktok_db_save_failed", req.url));
+    return redirect(req, "/tiktok-ads?error=tiktok_db_save_failed");
   }
 
   // Best-effort connection log (mirrors the ML callback). Never block the redirect.
@@ -113,7 +136,5 @@ export async function GET(req: NextRequest) {
     // hub_logs is non-critical here.
   }
 
-  const res = NextResponse.redirect(new URL("/tiktok-ads?tiktok=connected", req.url));
-  res.cookies.delete("tiktok_oauth_state");
-  return res;
+  return redirect(req, "/tiktok-ads?tiktok=connected");
 }

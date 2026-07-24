@@ -1,51 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { isMissingBioTable } from "@/lib/bio/config";
-
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-}
-
-async function authenticate(request: NextRequest) {
-  const supabase = createSupabase(request);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated", status: 401 as const };
-
-  const workspaceId = request.headers.get("x-workspace-id") || "";
-  if (!workspaceId) return { error: "Workspace not specified", status: 400 as const };
-
-  const admin = createAdminClient();
-  const { data: membership, error } = await admin
-    .from("workspace_members")
-    .select("role")
-    .eq("workspace_id", workspaceId)
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (error) return { error: "Failed to verify workspace access", status: 500 as const };
-  if (!membership) return { error: "Forbidden", status: 403 as const };
-
-  return { workspaceId };
-}
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = await authenticate(request);
-    if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const days = Math.min(Math.max(Number(request.nextUrl.searchParams.get("days")) || 7, 1), 90);
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
@@ -54,7 +14,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await admin
       .from("bio_page_events")
       .select("event_name, block_id, block_type, product_id, category, created_at")
-      .eq("workspace_id", auth.workspaceId)
+      .eq("workspace_id", workspaceId)
       .gte("created_at", since)
       .order("created_at", { ascending: false })
       .limit(5000);
@@ -101,6 +61,8 @@ export async function GET(request: NextRequest) {
       days,
     });
   } catch (error) {
+    const authResponse = handleAuthError(error);
+    if (authResponse.status < 500) return authResponse;
     console.error("[bio metrics] GET failed", error);
     return NextResponse.json({ error: "Failed to load bio metrics" }, { status: 500 });
   }
